@@ -213,13 +213,17 @@ if (empty($studentId)) {
     const closeBtn = document.getElementById('snotes-close');
 
     // ── Show study bar only on the entry page (IntroScene) ───────────────
-    // The game emits ui:toggle(false) on IntroScene and ui:toggle(true) on all
-    // other scenes.  Poll for window.elaSystems being ready, then subscribe.
+    // The game always starts on IntroScene, so show the bar immediately.
+    // Once the game systems are ready we subscribe to ui:toggle to hide the
+    // bar when the player navigates to any other scene (toggle=true) and to
+    // show it again if IntroScene becomes active (toggle=false).
+    studyBar.classList.add('visible');
+
     (function waitForSystems(retries) {
       if (window.elaSystems && window.elaSystems.events) {
         window.elaSystems.events.on('ui:toggle', (visible) => {
+          // visible=true  means a non-intro scene is active → hide bar
           // visible=false means IntroScene is active → show bar
-          // visible=true  means another scene is active → hide bar
           if (visible) {
             studyBar.classList.remove('visible');
             closeNotes();
@@ -229,8 +233,11 @@ if (empty($studentId)) {
         });
       } else if (retries > 0) {
         setTimeout(() => waitForSystems(retries - 1), 100);
+      } else {
+        // Game failed to initialize within 10s — hide the bar to avoid clutter
+        studyBar.classList.remove('visible');
       }
-    })(100); // max 10 seconds of polling
+    })(100); // 100 retries × 100ms = 10s max
 
     // ── Open modal when a gate button is clicked ──────────────────────────
     document.querySelectorAll('.snote-btn').forEach(btn => {
