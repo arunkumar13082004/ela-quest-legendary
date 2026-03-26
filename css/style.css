@@ -1,0 +1,193 @@
+:root {
+  --bg-a: #86d5ff;
+  --bg-b: #f6fcff;
+  --ink: #153a59;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  font-family: "Nunito", sans-serif;
+  background: linear-gradient(180deg, var(--bg-a), var(--bg-b));
+}
+
+#game-shell {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+#phaser-root {
+  width: 100%;
+  height: 100%;
+}
+
+canvas {
+  display: block;
+  margin: 0 auto;
+}
+
+#rotate-device {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  text-align: center;
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--ink);
+  z-index: 8;
+}
+
+#rotate-device h2 {
+  margin: 0 0 8px;
+  font-family: "Baloo 2", cursive;
+  font-size: 2rem;
+}
+
+#rotate-device p {
+  margin: 0;
+  max-width: 320px;
+  font-weight: 700;
+}
+
+@media (max-width: 900px) and (orientation: portrait) {
+  #rotate-device {
+    display: flex;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LOGIN OVERLAY
+   ═══════════════════════════════════════════════════════════════════════════ */
+.lm-hidden { display: none !important; }
+
+#login-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: linear-gradient(135deg, #1a3a6e 0%, #0d2040 40%, #1a5040 100%);
+  display: flex; align-items: center; justify-content: center;
+  font-family: "Nunito", sans-serif; padding: 16px;
+}
+
+#login-card {
+  background: #fff; border-radius: 24px; padding: 36px 40px 24px;
+  width: 100%; max-width: 420px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.45); position: relative;
+}
+
+#login-logo { text-align: center; margin-bottom: 20px; }
+#login-logo-icon { font-size: 52px; line-height: 1; margin-bottom: 4px; }
+#login-logo h1 {
+  margin: 0; font-family: "Baloo 2", cursive; font-size: 2rem;
+  color: #1a3a6e; font-weight: 800;
+}
+#login-logo p { margin: 2px 0 0; color: #5a7aaa; font-size: 0.9rem; font-weight: 700; }
+
+#login-card h2 {
+  font-family: "Baloo 2", cursive; font-size: 1.25rem;
+  color: #1a3a6e; margin: 0 0 16px; text-align: center;
+}
+
+.field-group { margin-bottom: 13px; }
+.field-group label {
+  display: block; font-size: 0.8rem; font-weight: 700;
+  color: #4a6a8a; margin-bottom: 4px;
+  text-transform: uppercase; letter-spacing: .05em;
+}
+.field-group input {
+  width: 100%; padding: 11px 14px; border: 2px solid #d0e0f0;
+  border-radius: 10px; font-family: "Nunito", sans-serif;
+  font-size: 1rem; color: #1a3a6e; outline: none; transition: border-color .15s;
+}
+.field-group input:focus { border-color: #4b8df8; }
+.field-hint { font-size: 0.73rem; color: #8aabcc; margin-top: 3px; display: block; }
+
+.btn-primary {
+  width: 100%; padding: 13px; border: none; border-radius: 12px;
+  background: #f7934c; color: #fff; font-family: "Baloo 2", cursive;
+  font-size: 1.1rem; font-weight: 700; cursor: pointer; margin-top: 4px;
+  transition: transform .1s, background .15s;
+  box-shadow: 0 4px 0 #c05e1a;
+}
+.btn-primary:hover  { background: #e87830; }
+.btn-primary:active { transform: translateY(2px); box-shadow: 0 2px 0 #c05e1a; }
+.btn-primary.btn-green { background: #4caf7a; box-shadow: 0 4px 0 #2d7a50; }
+.btn-primary.btn-green:hover { background: #3a9a65; }
+.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+.form-switch {
+  text-align: center; margin-top: 12px;
+  font-size: 0.87rem; color: #6a8aaa;
+}
+.form-switch a { color: #4b8df8; font-weight: 700; text-decoration: none; }
+.form-switch a:hover { text-decoration: underline; }
+
+.login-msg {
+  padding: 10px 14px; border-radius: 8px; font-size: 0.87rem;
+  font-weight: 700; margin-bottom: 12px; text-align: center;
+}
+.login-msg.error   { background: #ffe8e8; color: #c02020; border: 1px solid #f0b0b0; }
+.login-msg.success { background: #e8ffe8; color: #207020; border: 1px solid #a0d0a0; }
+.login-msg.info    { background: #e8f4ff; color: #1a5aaa; border: 1px solid #a0c8f0; }
+
+.resume-hint {
+  background: #f0f8ff; border: 1px solid #b0d8f8; border-radius: 8px;
+  padding: 9px 12px; margin-bottom: 10px;
+  font-size: 0.84rem; color: #1a5a8a; font-weight: 700; text-align: center;
+}
+
+#login-scores-row {
+  text-align: center; margin-top: 16px; padding-top: 12px;
+  border-top: 1px solid #e8f0f8;
+}
+#btn-show-scores {
+  color: #8a6aaa; font-weight: 700; font-size: 0.84rem; text-decoration: none;
+}
+#btn-show-scores:hover { text-decoration: underline; }
+
+/* Leaderboard overlay */
+#leaderboard-panel {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,0.65);
+  display: flex; align-items: center; justify-content: center;
+}
+#leaderboard-card {
+  background: #fff; border-radius: 20px; padding: 32px 36px;
+  width: 100%; max-width: 480px; max-height: 80vh; overflow-y: auto;
+  position: relative; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+#leaderboard-card h2 {
+  font-family: "Baloo 2", cursive; color: #1a3a6e;
+  margin: 0 0 18px; text-align: center; font-size: 1.4rem;
+}
+#btn-close-lb {
+  position: absolute; top: 14px; right: 16px;
+  background: none; border: none; font-size: 1.2rem;
+  cursor: pointer; color: #8a9aaa;
+}
+#btn-close-lb:hover { color: #333; }
+.lb-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; border-radius: 10px; margin-bottom: 6px;
+  background: #f4f8ff;
+}
+.lb-row.lb-gold   { background: #fffbe8; }
+.lb-row.lb-silver { background: #f4f4f4; }
+.lb-row.lb-bronze { background: #fff4ec; }
+.lb-rank  { font-family: "Baloo 2", cursive; font-size: 1.1rem; font-weight: 800; width: 28px; text-align: center; }
+.lb-name  { flex: 1; font-weight: 700; color: #1a3a6e; }
+.lb-stats { font-size: 0.8rem; color: #5a7aaa; text-align: right; line-height: 1.4; }
+.lb-empty { text-align: center; color: #8aabcc; font-style: italic; padding: 24px; }
+.lb-loading { text-align: center; color: #8aabcc; padding: 16px; }
+
+/* Game shell hidden by default until login */
+#game-shell { width: 100%; height: 100%; position: relative; }
