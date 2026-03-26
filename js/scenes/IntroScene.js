@@ -10,7 +10,7 @@ export default class IntroScene extends Phaser.Scene {
       (this.game?.config?.custom?.systems) || window.elaSystems;
     if (!systems) { console.error("IntroScene: systems not found."); return; }
     systems.audio.attach(this);
-    systems.audio.playMusic("bgm_world", 0.22);
+    systems.audio.stopMusic();
     systems.events.emit("ui:toggle", false);
 
     const W = this.scale.width;   // 1280
