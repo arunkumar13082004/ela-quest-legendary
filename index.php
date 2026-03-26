@@ -178,7 +178,159 @@ if (empty($studentId)) {
     </div>
   </div>
 
+  <!-- ── Study Notes: Gate Button Bar ──────────────────────────────────── -->
+  <div id="study-bar" role="navigation" aria-label="Study notes shortcuts">
+    <button class="snote-btn" data-gate="1">📗 Vocab</button>
+    <button class="snote-btn" data-gate="2">📘 Main Idea</button>
+    <button class="snote-btn" data-gate="3">📙 Figurative</button>
+    <button class="snote-btn" data-gate="4">📓 Story Order</button>
+    <button class="snote-btn" data-gate="5">📕 Evidence</button>
+  </div>
+
+  <!-- ── Study Notes: Modal Overlay ────────────────────────────────────── -->
+  <div id="snotes-overlay" class="lm-hidden" role="dialog" aria-modal="true" aria-labelledby="snotes-title">
+    <div id="snotes-card">
+      <div id="snotes-header">
+        <h2 id="snotes-title"></h2>
+        <button id="snotes-close" aria-label="Close study notes">✕</button>
+      </div>
+      <div id="snotes-body"></div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
   <script type="module" src="js/main.js"></script>
+
+  <!-- ── Study Notes: Interactivity ────────────────────────────────────── -->
+  <script type="module">
+    import { STUDY_NOTES } from './js/data/StudyNotes.js';
+
+    const overlay = document.getElementById('snotes-overlay');
+    const header  = document.getElementById('snotes-header');
+    const title   = document.getElementById('snotes-title');
+    const body    = document.getElementById('snotes-body');
+    const closeBtn = document.getElementById('snotes-close');
+
+    // ── Open modal when a gate button is clicked ──────────────────────────
+    document.querySelectorAll('.snote-btn').forEach(btn => {
+      btn.addEventListener('click', () => openNotes(btn.dataset.gate));
+    });
+
+    // ── Close modal ───────────────────────────────────────────────────────
+    closeBtn.addEventListener('click', closeNotes);
+    overlay.addEventListener('click', e => { if (e.target === overlay) closeNotes(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeNotes(); });
+
+    function openNotes(gateId) {
+      const notes = STUDY_NOTES[gateId];
+      if (!notes) return;
+
+      title.textContent = notes.title;
+      header.style.background = notes.color;
+      body.innerHTML = renderBody(notes.sections);
+      overlay.classList.remove('lm-hidden');
+      body.scrollTop = 0;
+      closeBtn.focus();
+    }
+
+    function closeNotes() {
+      overlay.classList.add('lm-hidden');
+    }
+
+    // ── Render all sections into HTML ─────────────────────────────────────
+    function renderBody(sections) {
+      return sections.map(s => `
+        <div class="sn-section">
+          <h3 class="sn-section-heading">${s.heading}</h3>
+          ${renderSection(s)}
+        </div>`).join('');
+    }
+
+    function renderSection(s) {
+      switch (s.type) {
+        case 'text':           return renderText(s);
+        case 'tips':           return renderTips(s);
+        case 'vocab-list':     return renderVocab(s);
+        case 'examples':       return renderExamples(s);
+        case 'fig-types':      return renderFigTypes(s);
+        case 'story-parts':    return renderStoryParts(s);
+        case 'story-examples': return renderStoryExamples(s);
+        case 'evidence-compare': return renderEvidenceCompare(s);
+        default:               return '';
+      }
+    }
+
+    function renderText(s) {
+      return `<p class="sn-text">${s.content}</p>`;
+    }
+
+    function renderTips(s) {
+      return `<ul class="sn-tips">${s.items.map(i => `<li>${i}</li>`).join('')}</ul>`;
+    }
+
+    function renderVocab(s) {
+      return `<div class="sn-vocab-grid">${s.words.map(w =>
+        `<div class="sn-vocab-item">
+          <span class="sn-vocab-word">${esc(w.word)}</span>
+          <span class="sn-vocab-def">– ${esc(w.definition)}</span>
+        </div>`).join('')}</div>`;
+    }
+
+    function renderExamples(s) {
+      return `<div class="sn-examples">${s.items.map(e =>
+        `<div class="sn-example-item">
+          <div class="sn-example-title">${esc(e.title)}</div>
+          <div class="sn-example-idea">${esc(e.idea)}</div>
+        </div>`).join('')}</div>`;
+    }
+
+    function renderFigTypes(s) {
+      return `<div class="sn-fig-types">${s.types.map(t =>
+        `<div class="sn-fig-item">
+          <div class="sn-fig-name">${esc(t.icon)} ${esc(t.name)}</div>
+          <div class="sn-fig-desc">${t.description}</div>
+          <div class="sn-fig-example">${t.example}</div>
+          <div class="sn-fig-tip">💡 ${esc(t.tip)}</div>
+        </div>`).join('')}</div>`;
+    }
+
+    function renderStoryParts(s) {
+      return `<div class="sn-story-parts">${s.parts.map(p =>
+        `<div class="sn-story-part">
+          <div class="sn-story-part-name">${p.name}</div>
+          <div class="sn-story-part-desc">${p.description}</div>
+          <div class="sn-story-part-ex">${esc(p.example)}</div>
+        </div>`).join('')}</div>`;
+    }
+
+    function renderStoryExamples(s) {
+      return `<div class="sn-story-examples">${s.items.map(e =>
+        `<div class="sn-story-ex-item">
+          <div class="sn-story-ex-title">📖 ${esc(e.title)}</div>
+          <div class="sn-story-row"><span class="sn-story-label">Setup:</span>      <span class="sn-story-val">${esc(e.setup)}</span></div>
+          <div class="sn-story-row"><span class="sn-story-label">Problem:</span>    <span class="sn-story-val">${esc(e.problem)}</span></div>
+          <div class="sn-story-row"><span class="sn-story-label">Climax:</span>     <span class="sn-story-val">${esc(e.climax)}</span></div>
+          <div class="sn-story-row"><span class="sn-story-label">Resolution:</span> <span class="sn-story-val">${esc(e.resolution)}</span></div>
+        </div>`).join('')}</div>`;
+    }
+
+    function renderEvidenceCompare(s) {
+      return `<div class="sn-ev-items">${s.items.map(e =>
+        `<div class="sn-ev-item">
+          <div class="sn-ev-claim">Claim: ${esc(e.claim)}</div>
+          <div class="sn-ev-good">${esc(e.evidence)}</div>
+          <div class="sn-ev-bad">${esc(e.notEvidence)}</div>
+        </div>`).join('')}</div>`;
+    }
+
+    // Escape user-facing text (data from our own StudyNotes.js — defense in depth)
+    function esc(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+  </script>
 </body>
 </html>
