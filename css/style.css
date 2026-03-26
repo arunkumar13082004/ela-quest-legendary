@@ -199,7 +199,7 @@ canvas {
   position: fixed;
   bottom: 0; left: 0; right: 0;
   z-index: 20;
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   gap: 10px;
@@ -208,6 +208,9 @@ canvas {
   backdrop-filter: blur(4px);
   border-top: 1px solid rgba(255,255,255,0.12);
   pointer-events: auto;
+}
+#study-bar.visible {
+  display: flex;
 }
 
 .snote-btn {

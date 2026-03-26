@@ -205,11 +205,32 @@ if (empty($studentId)) {
   <script type="module">
     import { STUDY_NOTES } from './js/data/StudyNotes.js';
 
+    const studyBar = document.getElementById('study-bar');
     const overlay = document.getElementById('snotes-overlay');
     const header  = document.getElementById('snotes-header');
     const title   = document.getElementById('snotes-title');
     const body    = document.getElementById('snotes-body');
     const closeBtn = document.getElementById('snotes-close');
+
+    // ── Show study bar only on the entry page (IntroScene) ───────────────
+    // The game emits ui:toggle(false) on IntroScene and ui:toggle(true) on all
+    // other scenes.  Poll for window.elaSystems being ready, then subscribe.
+    (function waitForSystems(retries) {
+      if (window.elaSystems && window.elaSystems.events) {
+        window.elaSystems.events.on('ui:toggle', (visible) => {
+          // visible=false means IntroScene is active → show bar
+          // visible=true  means another scene is active → hide bar
+          if (visible) {
+            studyBar.classList.remove('visible');
+            closeNotes();
+          } else {
+            studyBar.classList.add('visible');
+          }
+        });
+      } else if (retries > 0) {
+        setTimeout(() => waitForSystems(retries - 1), 100);
+      }
+    })(100); // max 10 seconds of polling
 
     // ── Open modal when a gate button is clicked ──────────────────────────
     document.querySelectorAll('.snote-btn').forEach(btn => {
@@ -329,7 +350,8 @@ if (empty($studentId)) {
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     }
   </script>
 </body>
