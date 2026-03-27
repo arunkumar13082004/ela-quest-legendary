@@ -45,36 +45,26 @@ export default class UIScene extends Phaser.Scene {
     }).setOrigin(0.5, 0.5);
     this.hudContainer.add([this.xpBarBg, this.xpBarFill, this.xpText]);
 
-    // ── Stars ─────────────────────────────────────────────────────────────────
-    this.hudContainer.add(this.add.text(348, 33, '⭐', { fontSize: '19px' }).setOrigin(0.5));
-    this.starText = this.add.text(370, 33, '0', {
-      fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '19px',
-      color: '#ffe066', stroke: '#7a4c00', strokeThickness: 3
-    }).setOrigin(0, 0.5);
-    this.hudContainer.add(this.starText);
-
-    // ── Crystals ──────────────────────────────────────────────────────────────
-    this.hudContainer.add(this.add.text(430, 33, '💎', { fontSize: '19px' }).setOrigin(0.5));
-    this.crystalText = this.add.text(452, 33, '0/5', {
-      fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '19px',
-      color: '#80f8ff', stroke: '#004466', strokeThickness: 3
-    }).setOrigin(0, 0.5);
-    this.hudContainer.add(this.crystalText);
-
     // ── Quest label + progress bar ────────────────────────────────────────────
-    this.hudContainer.add(this.add.text(640, 18, 'Quest', {
+    this.hudContainer.add(this.add.text(490, 18, 'Quest', {
       fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '13px', color: '#88ccff'
     }).setOrigin(0.5, 0));
-    this.progressBg   = this.add.rectangle(640, 41, 120, 13, 0x1a4a6e, 1).setOrigin(0.5);
-    this.progressFill = this.add.rectangle(580, 41,   0,  9, 0xffcc00, 1).setOrigin(0, 0.5);
+    this.progressBg   = this.add.rectangle(490, 41, 120, 13, 0x1a4a6e, 1).setOrigin(0.5);
+    this.progressFill = this.add.rectangle(430, 41,   0,  9, 0xffcc00, 1).setOrigin(0, 0.5);
     this.hudContainer.add([this.progressBg, this.progressFill]);
 
     // ── Gates counter ─────────────────────────────────────────────────────────
-    this.gateText = this.add.text(820, 33, 'Gates 0/5', {
+    this.gateText = this.add.text(650, 33, 'Gates 0/5', {
       fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '18px',
       color: '#d4f0ff', stroke: '#0a2440', strokeThickness: 3
     }).setOrigin(0, 0.5);
     this.hudContainer.add(this.gateText);
+
+    // ── Info button ───────────────────────────────────────────────────────────
+    const infoBtn = this.add.text(1194, 33, '❓', { fontSize: '22px' }).setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+    infoBtn.on('pointerdown', () => this._showTutorialModal());
+    this.hudContainer.add(infoBtn);
 
     // ── Mute button (far right — no logout needed, portal handles auth) ───────
     const muteBtn = this.add.text(1244, 33, '🔊', { fontSize: '22px' }).setOrigin(0.5)
@@ -84,6 +74,9 @@ export default class UIScene extends Phaser.Scene {
       muteBtn.setText(muted ? '🔇' : '🔊');
     });
     this.hudContainer.add(muteBtn);
+
+    // ── Tutorial modal (hidden; shown via info button) ─────────────────────────
+    this._buildTutorialModal();
 
     // ── TOAST ─────────────────────────────────────────────────────────────────
     this.toastPanel = this.add.graphics().setVisible(false);
@@ -108,11 +101,9 @@ export default class UIScene extends Phaser.Scene {
     this.xpText.setText(`XP ${snapshot.xp}/${snapshot.xpToNext}`);
     const ratio = Phaser.Math.Clamp(snapshot.xp / snapshot.xpToNext, 0, 1);
     this.xpBarFill.width = 200 * ratio;
-    this.starText.setText(String(snapshot.stars));
   }
 
   refreshProgress(snapshot) {
-    this.crystalText.setText(`${snapshot.restoredCrystals}/5`);
     this.gateText.setText(`Gates ${snapshot.completedCount}/5`);
     this.progressFill.width = 116 * (snapshot.completedCount / 5);
   }
@@ -167,5 +158,71 @@ export default class UIScene extends Phaser.Scene {
       this.toastPanel.setVisible(false);
       this.toastText.setVisible(false);
     }
+  }
+
+  _buildTutorialModal() {
+    this.tutorialModal = this.add.container(0, 0).setVisible(false).setDepth(200);
+
+    // Dimmed overlay — clicking it closes the modal
+    const overlay = this.add.rectangle(640, 360, 1280, 720, 0x000000, 0.65)
+      .setInteractive({ useHandCursor: false });
+    overlay.on('pointerdown', () => this.tutorialModal.setVisible(false));
+
+    // Modal card
+    const card = this.add.graphics();
+    card.fillStyle(0x0d2e4a, 0.97);
+    card.lineStyle(2, 0x3a9fd4, 1);
+    card.fillRoundedRect(340, 160, 600, 390, 18);
+    card.strokeRoundedRect(340, 160, 600, 390, 18);
+
+    // Orange header banner
+    const banner = this.add.graphics();
+    banner.fillStyle(0xff6b00, 1);
+    banner.fillRoundedRect(340, 160, 600, 52, { tl: 18, tr: 18, bl: 0, br: 0 });
+
+    const title = this.add.text(640, 186, '❓  How to Play', {
+      fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '22px',
+      color: '#ffffff', stroke: '#7a2e00', strokeThickness: 3
+    }).setOrigin(0.5);
+
+    const hudItems = [
+      { icon: '🟢', label: 'XP Bar',  desc: 'Earn XP by answering correctly — fill it to level up!' },
+      { icon: '🗺️',  label: 'Quest',  desc: 'Shows your current mission progress across all gates.' },
+      { icon: '🚪', label: 'Gates',   desc: 'Complete each gate to unlock the next world level.' },
+      { icon: '🔊', label: 'Mute',    desc: 'Toggle background music and sound effects on / off.' }
+    ];
+
+    const itemObjs = [];
+    hudItems.forEach((item, i) => {
+      const y = 248 + i * 72;
+      const iconTxt = this.add.text(374, y, item.icon, { fontSize: '26px' }).setOrigin(0, 0.5);
+      const labelTxt = this.add.text(412, y - 10, item.label, {
+        fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '16px',
+        color: '#88ccff', stroke: '#0a2440', strokeThickness: 2
+      }).setOrigin(0, 0.5);
+      const descTxt = this.add.text(412, y + 14, item.desc, {
+        fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '13px',
+        color: '#d4f0ff', wordWrap: { width: 490 }
+      }).setOrigin(0, 0.5);
+      itemObjs.push(iconTxt, labelTxt, descTxt);
+    });
+
+    // Close button
+    const closeBg = this.add.graphics();
+    closeBg.fillStyle(0xff6b00, 1);
+    closeBg.lineStyle(2, 0x3a9fd4, 1);
+    closeBg.fillRoundedRect(540, 516, 200, 44, 12);
+    closeBg.strokeRoundedRect(540, 516, 200, 44, 12);
+    const closeBtn = this.add.text(640, 538, 'Got it! ✔', {
+      fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '18px',
+      color: '#ffffff', stroke: '#7a2e00', strokeThickness: 2
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerdown', () => this.tutorialModal.setVisible(false));
+
+    this.tutorialModal.add([overlay, card, banner, title, ...itemObjs, closeBg, closeBtn]);
+  }
+
+  _showTutorialModal() {
+    this.tutorialModal.setVisible(true);
   }
 }
