@@ -176,7 +176,7 @@ export default class AnimationSystem {
 
     // ── "Try again!" text flies in from bottom ────────────────────────────────
     scene.time.delayedCall(100, () => {
-      const tryTxt = scene.add.text(W/2, H/2 + 100, 'Try again! 💪', {
+      const tryTxt = scene.add.text(W/2, H/2 + 100, 'Incorrect.', {
         fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '40px',
         color: '#ffffff', fontStyle: 'bold',
         stroke: '#7a0000', strokeThickness: 8

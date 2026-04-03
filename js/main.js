@@ -81,7 +81,14 @@ if (!window.STUDENT_ID) {
   events.on('progress:updated', scheduleSave);
 
   // Best-effort save on tab/window close
-  window.addEventListener('beforeunload', () => save.saveSync(snapshot()));
+  // Only show browser alert if student is actively mid-game (not on map/intro)
+  window.addEventListener('beforeunload', (e) => {
+    save.saveSync(snapshot());
+    if (window.elaIsPlaying) {
+      e.preventDefault();
+      e.returnValue = '';   // triggers the browser's native "Leave site?" dialog
+    }
+  });
 
   // ── Submit score when all 5 gates completed ────────────────────────────────
   events.on('progress:updated', s => {

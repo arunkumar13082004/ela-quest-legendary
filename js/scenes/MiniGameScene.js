@@ -38,6 +38,8 @@ export default class MiniGameScene extends Phaser.Scene {
     this.heroHp = 100;
     this.awaitingAnswer = false;
     this.roundTarget = this.difficulty.getQuestionCountForRun(this.gateId);
+    // Only award XP/stars on the FIRST attempt (not on replays of already-completed gates)
+    this.isFirstAttempt = !this.progression.isGateCompleted(this.gateId);
     this.vocabCursors = this.input.keyboard.createCursorKeys();
     this.vocabWASD = this.input.keyboard.addKeys({
       left: Phaser.Input.Keyboard.KeyCodes.A,
@@ -49,6 +51,19 @@ export default class MiniGameScene extends Phaser.Scene {
     this.createBottomHud();
     this.prepareGateState();
     this._instructionAccepted = false;
+    this._leaveWarningOpen    = false;
+    this._gameFinished        = false;   // set true when finishGateRun() runs
+    this._xpEarnedThisRun     = 0;      // track XP to reverse on fail
+
+    // ── Check if player has lives — if not, block play ─────────────────────
+    const livesNow = this.player.getSnapshot ? this.player.getSnapshot().lives : 5;
+    if (livesNow <= 0) {
+      this._showNoLivesScreen();
+      return;
+    }
+
+    // Signal that a game is actively in progress (used by beforeunload in main.js)
+    window.elaIsPlaying = true;
 
     // ── Show gate instructions FIRST — game only starts after student accepts ──
     this._showGateInstructions(() => {
@@ -100,12 +115,12 @@ export default class MiniGameScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     // Round / Score / Timer on the line below
-    this.roundText = this.add.text(36, HEADER_Y + 16, 'Round 1/1', {
+    this.roundText = this.add.text(130, HEADER_Y + 16, 'Round 1/1', {
       fontFamily: '"Baloo 2", Arial, sans-serif',
       fontSize: '16px', color: '#1c4d73'
     }).setOrigin(0, 0.5);
 
-    this.scoreText = this.add.text(320, HEADER_Y + 16, 'Score 0 correct', {
+    this.scoreText = this.add.text(360, HEADER_Y + 16, 'Score 0 correct', {
       fontFamily: '"Baloo 2", Arial, sans-serif',
       fontSize: '16px', color: '#1c4d73'
     }).setOrigin(0, 0.5);
@@ -117,6 +132,70 @@ export default class MiniGameScene extends Phaser.Scene {
       fontFamily: '"Baloo 2", Arial, sans-serif',
       fontSize: '14px', color: '#1c4d73'
     }).setOrigin(1, 0.5);
+
+    // Exit button (top left, in the top bar) - pause timer and ask confirm
+    this.exitButton = this.createButton(68, HEADER_Y + 10, 'Exit', () => this._confirmExit(), 0xffb3b3, 70, 32);
+    this.exitButton.label.setFontSize('12px').setStyle({ color: '#7a1e1e' });
+    this.exitButton.setDepth(14);
+    this.exitButton.label.setDepth(15);
+  }
+
+  _confirmExit() {
+    if (this._leaveWarningOpen || this._gameFinished) {
+      return;
+    }
+    this._leaveWarningOpen = true;
+
+    // Pause clock while confirmation is on screen
+    if (this.roundTimerEvent) {
+      this.roundTimerEvent.paused = true;
+    }
+
+    const W = this.scale.width;
+    const H = this.scale.height;
+
+    const overlay = this.add.rectangle(W/2, H/2, W, H, 0x000000, 0.54)
+      .setDepth(95)
+      .setInteractive();
+
+    const boxW = 660; const boxH = 220;
+    const boxX = W/2 - boxW/2;
+    const boxY = H/2 - boxH/2;
+
+    const boxGraphic = this.add.graphics().setDepth(96);
+    boxGraphic.fillStyle(0xffffff, 1).fillRoundedRect(boxX, boxY, boxW, boxH, 16);
+    boxGraphic.lineStyle(3, 0xcc4444, 0.9).strokeRoundedRect(boxX, boxY, boxW, boxH, 16);
+
+    const msg = this.add.text(W/2, H/2 - 28,
+      'Leave the game now?\nYou will lose 1 life and your current round progress.', {
+        fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '19px', color: '#2c2c2c', align: 'center', wordWrap: { width: boxW - 40 }
+      }).setOrigin(0.5).setDepth(97);
+
+    const yesBtn = this.createButton(W/2 - 100, H/2 + 50, 'Yes, Exit', () => {
+      this.player.loseLife();
+      window.elaIsPlaying = false;
+      this._disposeExitDialog();
+      this.scene.start('GateScene', { gateId: this.gateId });
+    }, 0xffa2a2, 160, 40);
+    yesBtn.setDepth(97); yesBtn.label.setDepth(98);
+
+    const noBtn = this.createButton(W/2 + 100, H/2 + 50, 'Continue', () => {
+      this._disposeExitDialog(true);
+    }, 0xa2d8ff, 160, 40);
+    noBtn.setDepth(97); noBtn.label.setDepth(98);
+
+    this._exitDialog = [overlay, boxGraphic, msg, yesBtn, yesBtn.label, noBtn, noBtn.label];
+  }
+
+  _disposeExitDialog(resumeTimer = false) {
+    if (this._exitDialog) {
+      this._exitDialog.forEach(obj => { if (obj && obj.destroy) obj.destroy(); });
+      this._exitDialog = null;
+    }
+    this._leaveWarningOpen = false;
+    if (resumeTimer && this.roundTimerEvent) {
+      this.roundTimerEvent.paused = false;
+    }
   }
 
   createBottomHud() {
@@ -125,25 +204,12 @@ export default class MiniGameScene extends Phaser.Scene {
     this.feedbackPanel = this.add.rectangle(640, PANEL_Y, 1240, 78, 0xffffff, 0.95)
       .setStrokeStyle(2, 0xcae4ff, 1).setDepth(20);
 
-    // Feedback text — leaves room for the Map button on the right
+    // Feedback text — full width now (no map button)
     this.feedbackText = this.add.text(28, PANEL_Y, '', {
       fontFamily: '"Baloo 2", Arial, sans-serif',
       fontSize: '18px', color: '#1f4f71',
-      wordWrap: { width: 1050 }
+      wordWrap: { width: 1200 }
     }).setOrigin(0, 0.5).setDepth(21);
-
-    // Map button — pill on the right, fully inside the 1240px panel (panel right edge = 1260)
-    const mapBg = this.add.rectangle(1168, PANEL_Y, 168, 46, 0x4b8df8)
-      .setStrokeStyle(2, 0xffffff, 0.7).setDepth(21)
-      .setInteractive({ useHandCursor: true });
-    const mapLbl = this.add.text(1168, PANEL_Y, '🗺️  Go to Map', {
-      fontFamily: '"Baloo 2", Arial, sans-serif',
-      fontSize: '17px', color: '#ffffff', fontStyle: 'bold'
-    }).setOrigin(0.5).setDepth(22);
-    mapBg.on('pointerover', () => mapBg.setFillStyle(0x3a7de0));
-    mapBg.on('pointerout',  () => mapBg.setFillStyle(0x4b8df8));
-    mapBg.on('pointerdown', () => this.scene.start('WorldMapScene'));
-    this.backButton = mapBg;
   }
 
   prepareGateState() {
@@ -155,12 +221,46 @@ export default class MiniGameScene extends Phaser.Scene {
     };
 
     if (this.gateId === 3) {
-      this.arenaHero = this.add.image(170, 448, "hero").setScale(1.5).setDepth(5);
-      this.arenaEnemy = this.add.image(1110, 420, "enemy").setScale(1.8).setDepth(5);
-      this.arenaHeroBarBg = this.add.rectangle(88, 516, 170, 16, 0x223e66).setOrigin(0, 0.5);
-      this.arenaHeroBar = this.add.rectangle(90, 516, 166, 12, 0x65db9f).setOrigin(0, 0.5);
-      this.arenaEnemyBarBg = this.add.rectangle(1022, 516, 170, 16, 0x223e66).setOrigin(0, 0.5);
-      this.arenaEnemyBar = this.add.rectangle(1024, 516, 166, 12, 0xff8f8f).setOrigin(0, 0.5);
+      // ── Animated hero character (left) ────────────────────────────────────
+      this.arenaHero = this.add.text(100, 560, '🧙', { fontSize: '64px' })
+        .setOrigin(0.5).setDepth(5);
+      // Idle bob
+      this.tweens.add({ targets: this.arenaHero, y: 545, duration: 700,
+        yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+
+      // Hero label
+      this.add.text(100, 510, '⚔️ You', {
+        fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '14px', color: '#1a4a6e'
+      }).setOrigin(0.5).setDepth(5);
+
+      // ── Animated enemy character (right) ─────────────────────────────────
+      this.arenaEnemy = this.add.text(1180, 555, '👾', { fontSize: '68px' })
+        .setOrigin(0.5).setDepth(5);
+      // Enemy idle sway
+      this.tweens.add({ targets: this.arenaEnemy, y: 540, duration: 900,
+        yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: 200 });
+      // Enemy rotation wobble
+      this.tweens.add({ targets: this.arenaEnemy, angle: 8, duration: 1200,
+        yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+
+      // Enemy label
+      this.add.text(1180, 505, '👺 Echo Beast', {
+        fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '14px', color: '#6e1a1a'
+      }).setOrigin(0.5).setDepth(5);
+
+      // ── HP bars ───────────────────────────────────────────────────────────
+      this.arenaHeroBarBg  = this.add.rectangle(50,  605, 120, 14, 0x223e66).setOrigin(0, 0.5);
+      this.arenaHeroBar    = this.add.rectangle(52,  605, 116, 10, 0x65db9f).setOrigin(0, 0.5);
+      this.arenaEnemyBarBg = this.add.rectangle(1110, 605, 120, 14, 0x223e66).setOrigin(0, 0.5);
+      this.arenaEnemyBar   = this.add.rectangle(1112, 605, 116, 10, 0xff8f8f).setOrigin(0, 0.5);
+
+      // HP labels
+      this.add.text(110, 612, '❤️ HP', {
+        fontFamily: '"Nunito", Arial, sans-serif', fontSize: '11px', color: '#ffffff'
+      }).setOrigin(0.5).setDepth(6);
+      this.add.text(1170, 612, '💀 HP', {
+        fontFamily: '"Nunito", Arial, sans-serif', fontSize: '11px', color: '#ffffff'
+      }).setOrigin(0.5).setDepth(6);
     }
 
     if (this.gateId === 5) {
@@ -208,7 +308,7 @@ export default class MiniGameScene extends Phaser.Scene {
   renderQuestion(question) {
     if (this.gateId === 1) {
       this.renderVocabularyForest(question);
-      this.startRoundTimer(this.getTimerForDifficulty(question.difficulty, 21));
+      this.startRoundTimer(this.getTimerForDifficulty(question.difficulty, 30));
       return;
     }
 
@@ -275,153 +375,211 @@ export default class MiniGameScene extends Phaser.Scene {
 
   // ── Gate instructions — shown ONCE before the first round, blocks game start ─
   _showGateInstructions(onAccepted) {
+    // Theme colors matching each gate's palette
+    const GATE_THEMES = {
+      1: { header: 0x2d7a50, accent: 0x4caf7a, light: 0xd4f5e5, border: 0x4caf7a, text: '#1a3a22' },
+      2: { header: 0x2555c9, accent: 0x4b8df8, light: 0xcfe4ff, border: 0x4b8df8, text: '#1a2a6a' },
+      3: { header: 0xc05e1a, accent: 0xf7934c, light: 0xffe4cf, border: 0xf7934c, text: '#5a2800' },
+      4: { header: 0x7a47cc, accent: 0xb382f8, light: 0xeaddff, border: 0xb382f8, text: '#3c1878' },
+      5: { header: 0xa83030, accent: 0xe06262, light: 0xffd5d5, border: 0xe06262, text: '#6a1818' }
+    };
+    const theme = GATE_THEMES[this.gateId] || GATE_THEMES[1];
+
     const GATE_INSTRUCTIONS = {
       1: {
         title: '📖 Vocabulary Forest',
         steps: [
-          '① Read the sentence carefully.',
-          '② Find the meaning of the highlighted word using context clues.',
-          '③ Walk your hero to the correct answer door and press SPACE — or just click the card!'
+          '📌  Read the full sentence carefully.',
+          '📌  Look for clues in the words around the highlighted word.',
+          '📌  Click the answer card that best matches the meaning!',
         ]
       },
       2: {
         title: '🔍 Main Idea City',
         steps: [
-          '① Read the passage carefully.',
-          '② Click the button that shows the MAIN IDEA of the passage.',
-          '③ Drag 2 evidence cards into the Evidence slots that best support your main idea.',
-          '④ Press Submit Case when you are done!'
+          '📌  Read the passage carefully.',
+          '📌  Click the button that best states the MAIN IDEA.',
+          '📌  Drag 2 evidence cards into the Evidence slots.',
+          '📌  Press Submit Case when done!',
         ]
       },
       3: {
         title: '🎭 Figurative Language Arena',
         steps: [
-          '① Read the phrase shown on screen.',
-          '② Decide which type of figurative language it is:',
-          '   Simile · Metaphor · Idiom · Hyperbole · Personification · Onomatopoeia · Alliteration · Literal',
-          '③ Click the correct category button to strike the Echo Beast!'
+          '📌  Read the phrase shown on screen.',
+          '📌  Identify: Simile · Metaphor · Idiom · Hyperbole',
+          '       · Personification · Onomatopoeia · Alliteration · Literal',
+          '📌  Click the correct category to strike the Echo Beast!',
         ]
       },
       4: {
         title: '📚 Story Builder Kingdom',
         steps: [
-          '① Read all 4 story event cards.',
-          '② Drag each card into the numbered Step slot in the correct story order (1 → 4).',
-          '③ Click Lock Timeline once all four steps are placed correctly!'
+          '📌  Read all 4 story event cards.',
+          '📌  Drag each card into the correct Step slot (1 → 4).',
+          '📌  Click Lock Timeline once all steps are in order!',
         ]
       },
       5: {
         title: '🧩 Evidence Mountain',
         steps: [
-          '① Read the Claim at the top.',
-          '② Read the passage carefully.',
-          '③ Click the sentence that best SUPPORTS the claim with real evidence from the text.',
-          '   The right choice moves your climber up the mountain!'
+          '📌  Read the Claim at the top.',
+          '📌  Read the passage carefully.',
+          '📌  Click the sentence that BEST supports the claim.',
+          '📌  The right choice moves your climber higher!',
         ]
       }
     };
 
     const instr  = GATE_INSTRUCTIONS[this.gateId] || GATE_INSTRUCTIONS[1];
     const W = 1280, H = 720;
-    const CARD_W = 860, CARD_H = 320;
-    const CARD_X = (W - CARD_W) / 2;
-    const CARD_Y = (H - CARD_H) / 2 - 10;
 
-    // Dim overlay — blocks all game input underneath
-    const overlay = this.add.rectangle(W/2, H/2, W, H, 0x000000, 0.6).setDepth(60).setInteractive();
+    const LINE_H  = 34;
+    const HDR_H   = 52;
+    const PAD_TOP = 18;
+    const PAD_BOT = 68;
+    const CARD_W  = 680;
+    const CARD_H  = HDR_H + PAD_TOP + instr.steps.length * LINE_H + PAD_BOT;
+    const CARD_X  = (W - CARD_W) / 2;
+    const CARD_Y  = (H - CARD_H) / 2;
 
-    // Card background
+    // Dim overlay — clicking OUTSIDE card closes dialog
+    const overlay = this.add.rectangle(W/2, H/2, W, H, 0x000000, 0.55)
+      .setDepth(60).setInteractive({ useHandCursor: false });
+
+    // Card hit area — absorbs clicks so they don't reach overlay behind
+    const cardHit = this.add.rectangle(W/2, CARD_Y + CARD_H/2, CARD_W, CARD_H, 0, 0)
+      .setDepth(64).setInteractive();
+    cardHit.on('pointerdown', () => { /* absorbed */ });
+
+    // Card background with light theme tint
     const cardG = this.add.graphics().setDepth(61);
     cardG.fillStyle(0xfafcff, 1);
-    cardG.lineStyle(4, 0xaaccee, 1);
+    cardG.lineStyle(3, theme.border, 0.7);
     cardG.fillRoundedRect(CARD_X, CARD_Y, CARD_W, CARD_H, 18);
     cardG.strokeRoundedRect(CARD_X, CARD_Y, CARD_W, CARD_H, 18);
 
-    // Header strip
+    // Light tint strip below header
+    const tintG = this.add.graphics().setDepth(61);
+    tintG.fillStyle(theme.light, 0.35);
+    tintG.fillRoundedRect(CARD_X, CARD_Y + HDR_H, CARD_W, CARD_H - HDR_H, { tl:0, tr:0, bl:18, br:18 });
+
+    // Header strip — themed color
     const headerG = this.add.graphics().setDepth(61);
-    headerG.fillStyle(0xff7c2a, 1);
-    headerG.fillRoundedRect(CARD_X, CARD_Y, CARD_W, 52, { tl:18, tr:18, bl:0, br:0 });
+    headerG.fillStyle(theme.header, 1);
+    headerG.fillRoundedRect(CARD_X, CARD_Y, CARD_W, HDR_H, { tl:18, tr:18, bl:0, br:0 });
+    // Accent shine on header
+    headerG.fillStyle(0xffffff, 0.14);
+    headerG.fillRoundedRect(CARD_X + 4, CARD_Y + 4, CARD_W - 8, HDR_H / 2 - 4, { tl:16, tr:16, bl:0, br:0 });
 
     // Header title
-    this.add.text(W/2, CARD_Y + 26, `📋  How to Play — ${instr.title}`, {
-      fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '20px',
+    const titleTxt = this.add.text(W/2, CARD_Y + HDR_H/2,
+      `📋  How to Play — ${instr.title}`, {
+      fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '18px',
       color: '#ffffff', fontStyle: 'bold'
     }).setOrigin(0.5).setDepth(62);
 
-    // Step lines
-    const stepY = CARD_Y + 72;
-    instr.steps.forEach((step, i) => {
-      this.add.text(W/2, stepY + i * 42, step, {
-        fontFamily: '"Nunito", Arial, sans-serif', fontSize: '16px',
-        color: '#1a2a3a', align: 'center', wordWrap: { width: CARD_W - 60 }
-      }).setOrigin(0.5).setDepth(62);
-    });
-
-    // Divider line
-    const divY = CARD_Y + CARD_H - 80;
+    // Divider below header
     const divG = this.add.graphics().setDepth(61);
-    divG.lineStyle(1, 0xdddddd, 1);
-    divG.lineBetween(CARD_X + 30, divY, CARD_X + CARD_W - 30, divY);
+    divG.lineStyle(1.5, theme.accent, 0.3);
+    divG.lineBetween(CARD_X + 24, CARD_Y + HDR_H + 1, CARD_X + CARD_W - 24, CARD_Y + HDR_H + 1);
 
-    // Checkbox row
-    const checkX = CARD_X + 80;
-    const checkY = CARD_Y + CARD_H - 48;
-    let checked = false;
+    // Step lines — left-aligned bullet style
+    const stepsTexts = instr.steps.map((step, i) =>
+      this.add.text(
+        CARD_X + 28,
+        CARD_Y + HDR_H + PAD_TOP + i * LINE_H,
+        step,
+        {
+          fontFamily: '"Nunito", Arial, sans-serif',
+          fontSize: '15px', color: theme.text,
+          wordWrap: { width: CARD_W - 50 }
+        }
+      ).setOrigin(0, 0).setDepth(62)
+    );
 
-    const checkBox = this.add.rectangle(checkX, checkY, 24, 24, 0xffffff, 1)
-      .setStrokeStyle(2, 0x4477aa, 1).setDepth(62).setInteractive({ useHandCursor: true });
-    const checkTick = this.add.text(checkX, checkY, '', {
-      fontSize: '18px', color: '#22aa55', fontStyle: 'bold'
-    }).setOrigin(0.5).setDepth(63);
-    const checkLbl = this.add.text(checkX + 18, checkY, "I understand — let's play!", {
-      fontFamily: '"Nunito", Arial, sans-serif', fontSize: '16px',
-      color: '#1a2a3a', fontStyle: 'bold'
-    }).setOrigin(0, 0.5).setDepth(62).setInteractive({ useHandCursor: true });
+    // "Got it — Let's Play!" button
+    const BTN_Y  = CARD_Y + CARD_H - PAD_BOT / 2;
+    const btnBg  = this.add.graphics().setDepth(62);
+    // Got it button is on the right side; Cancel is on the left
+    const BTN_RIGHT_X = W/2 + 90;  // centre of Got it button
+    const BTN_W2 = 210;
+    const drawBtn = (hover) => {
+      btnBg.clear();
+      const c1 = hover ? theme.header : theme.accent;
+      const c2 = hover ? theme.accent : theme.header;
+      btnBg.fillStyle(c1, 1);
+      btnBg.lineStyle(3, c2, 1);
+      btnBg.fillRoundedRect(BTN_RIGHT_X - BTN_W2/2, BTN_Y - 22, BTN_W2, 44, 14);
+      btnBg.strokeRoundedRect(BTN_RIGHT_X - BTN_W2/2, BTN_Y - 22, BTN_W2, 44, 14);
+      btnBg.fillStyle(0xffffff, 0.18);
+      btnBg.fillRoundedRect(BTN_RIGHT_X - BTN_W2/2 + 4, BTN_Y - 19, BTN_W2 - 8, 18, { tl:12, tr:12, bl:0, br:0 });
+    };
+    drawBtn(false);
 
-    // Start button (right side, grey until checked)
-    const btnX = CARD_X + CARD_W - 110;
-    const btnBg = this.add.rectangle(btnX, checkY, 180, 44, 0xbbbbbb, 1)
-      .setStrokeStyle(2, 0xffffff, 0.5).setDepth(62).setInteractive({ useHandCursor: true });
-    const btnTxt = this.add.text(btnX, checkY, '▶  Start Playing!', {
-      fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '16px',
+    const btnTxt = this.add.text(BTN_RIGHT_X, BTN_Y, "\u25B6  Got it, Let's Play!", {
+      fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '17px',
       color: '#ffffff', fontStyle: 'bold'
     }).setOrigin(0.5).setDepth(63);
 
-    const allEls = [overlay, cardG, headerG, checkBox, checkTick, checkLbl, btnBg, btnTxt, divG];
-    // Also collect the text objects added via this.add.text above
-    const destroyAll = () => allEls.forEach(o => { if (o && o.destroy) o.destroy(); });
+    const btnHit = this.add.rectangle(BTN_RIGHT_X, BTN_Y, BTN_W2, 44, 0, 0)
+      .setDepth(65).setInteractive({ useHandCursor: true });
+    btnHit.on('pointerover',  () => drawBtn(true));
+    btnHit.on('pointerout',   () => drawBtn(false));
+    btnHit.on('pointerdown',  () => {
+      this.tweens.add({ targets: btnBg, alpha: 0.7, duration: 60, yoyo: true,
+        onComplete: () => {
+          this._instructionAccepted = true;
+          destroyAll();
+          onAccepted();
+        }
+      });
+    });
 
-    const toggle = () => {
-      checked = !checked;
-      checkTick.setText(checked ? '✓' : '');
-      checkBox.setFillStyle(checked ? 0xd0ffd8 : 0xffffff);
-      btnBg.setFillStyle(checked ? 0x22aa55 : 0xbbbbbb);
-    };
-    checkBox.on('pointerdown', toggle);
-    checkLbl.on('pointerdown', toggle);
+    // Cancel button — goes back to GateScene entry page
+    const cancelBg = this.add.graphics().setDepth(62);
+    cancelBg.fillStyle(0xeeeeee, 1);
+    cancelBg.lineStyle(2, 0xaaaaaa, 1);
+    const CANCEL_X = W/2 - 90;   // centre of Cancel button
+    const CANCEL_W = 210;
+    cancelBg.fillRoundedRect(CANCEL_X - CANCEL_W/2, BTN_Y - 22, CANCEL_W, 44, 14);
+    cancelBg.strokeRoundedRect(CANCEL_X - CANCEL_W/2, BTN_Y - 22, CANCEL_W, 44, 14);
+    cancelBg.fillStyle(0xffffff, 0.25);
+    cancelBg.fillRoundedRect(CANCEL_X - CANCEL_W/2 + 4, BTN_Y - 19, CANCEL_W - 8, 18, { tl:12, tr:12, bl:0, br:0 });
 
-    const tryStart = () => {
-      if (!checked) {
-        checkLbl.setColor('#cc2222');
-        this.time.delayedCall(900, () => checkLbl.setColor('#1a2a3a'));
-        return;
-      }
-      this._instructionAccepted = true;
+    const cancelTxt = this.add.text(CANCEL_X, BTN_Y, 'Go back', {
+      fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '16px',
+      color: '#444444', fontStyle: 'bold'
+    }).setOrigin(0.5).setDepth(63);
+
+    const cancelHit = this.add.rectangle(CANCEL_X, BTN_Y, CANCEL_W, 44, 0, 0)
+      .setDepth(65).setInteractive({ useHandCursor: true });
+    cancelHit.on('pointerover',  () => { cancelBg.clear(); cancelBg.fillStyle(0xdddddd, 1); cancelBg.lineStyle(2, 0xaaaaaa, 1); cancelBg.fillRoundedRect(CANCEL_X-CANCEL_W/2, BTN_Y-22, CANCEL_W, 44, 14); cancelBg.strokeRoundedRect(CANCEL_X-CANCEL_W/2, BTN_Y-22, CANCEL_W, 44, 14); });
+    cancelHit.on('pointerout',   () => { cancelBg.clear(); cancelBg.fillStyle(0xeeeeee, 1); cancelBg.lineStyle(2, 0xaaaaaa, 1); cancelBg.fillRoundedRect(CANCEL_X-CANCEL_W/2, BTN_Y-22, CANCEL_W, 44, 14); cancelBg.strokeRoundedRect(CANCEL_X-CANCEL_W/2, BTN_Y-22, CANCEL_W, 44, 14); });
+    cancelHit.on('pointerdown',  () => {
+      window.elaIsPlaying = false;
       destroyAll();
-      // Destroy the header text objects too — find by depth
-      this.children.list
-        .filter(o => o.depth === 62 || o.depth === 63)
-        .forEach(o => o.destroy());
-      onAccepted();
-    };
-    btnBg.on('pointerdown', tryStart);
-    btnTxt.on('pointerdown', tryStart);
-    btnTxt.setInteractive({ useHandCursor: true });
+      this.scene.start('GateScene', { gateId: this.gateId });
+    });
+
+    // Reposition "Got it" button to the right of Cancel
+    btnBg.x = 0; // btnBg is graphics with absolute coords — already set correctly above
+
+    const allEls = [overlay, cardHit, cardG, tintG, headerG, divG, titleTxt,
+                    ...stepsTexts, btnBg, btnTxt, btnHit, cancelBg, cancelTxt, cancelHit];
+    const destroyAll = () =>
+      allEls.forEach(o => { try { if (o && o.destroy) o.destroy(); } catch(e){} });
+
+    // Overlay click intentionally does nothing — use Cancel or Got it button
+
+    // Fade in
+    const fadeTargets = allEls.filter(o => o && typeof o.setAlpha === 'function');
+    fadeTargets.forEach(o => { try { o.setAlpha(0); } catch(e){} });
+    this.tweens.add({ targets: fadeTargets, alpha: 1, duration: 180, ease: 'Sine.easeOut' });
   }
 
   renderVocabularyForest(question) {
-    this.feedbackText.setText("① Read the sentence   ②  Find the meaning of the highlighted word   ③  Click the correct answer card — or walk up and press SPACE!");
-    this.feedbackText.setText("① Read the sentence   ②  Find the meaning of the highlighted word   ③  Click the correct answer card — or walk up and press SPACE!");
+    this.feedbackText.setText("① Read the sentence   ②  Find the meaning of the highlighted word   ③  Click the correct answer card!");
     const ui = (window.elaUI && window.elaUI.sizes) ? window.elaUI.sizes : { subtitle: 48, body: 24 };
 
     const prompt = this.add.text(640, 188, `Word: "${question.targetWord}"`, {
@@ -436,17 +594,9 @@ export default class MiniGameScene extends Phaser.Scene {
       align: 'center', wordWrap: { width: 1080 }
     }).setOrigin(0.5);
 
-    // Rotate through 3 different pastel sets so each question looks different
-    const PALETTE_SETS = [
-      [0xffe8a0, 0xa8e6cf, 0xffb3c1],   // warm: yellow / mint / rose
-      [0xb8d4ff, 0xffd6a0, 0xc8f0b8],   // cool: blue / peach / lime
-      [0xf0c8ff, 0xffe0a8, 0xa0e8e8],   // soft: lavender / amber / teal
-      [0xffcba4, 0xb4e8ff, 0xfff0a0],   // fresh: coral / sky / lemon
-      [0xd4f0a0, 0xffc8e8, 0xb0d8ff],   // spring: green / pink / periwinkle
-    ];
-    const paletteIdx = this.roundIndex % PALETTE_SETS.length;
-    const colors = PALETTE_SETS[paletteIdx];
-    const darkColors = ['#5a3800', '#1a4a30', '#6a1a2a', '#1a3a6a', '#1a3a5a'];
+    // All doors use the same neutral color — highlight correct after answer
+    const CARD_COLOR = 0xf0f4ff;
+    const CARD_BORDER = 0x8899cc;
 
     const DOOR_W = 280, DOOR_H = 180;
     const positions = [240, 640, 1040];
@@ -454,27 +604,22 @@ export default class MiniGameScene extends Phaser.Scene {
     this.modeState.doors = [];
 
     positions.forEach((x, index) => {
-      const col     = colors[index % colors.length];
-      const colHex  = '#' + col.toString(16).padStart(6, '0');
-
       // Door graphic (rounded rect like a card)
       const dg = this.add.graphics().setDepth(10);
-      // Shadow
-      dg.fillStyle(0x000000, 0.18);
-      dg.fillRoundedRect(x - DOOR_W/2 + 4, DOOR_Y - DOOR_H/2 + 6, DOOR_W, DOOR_H, 22);
-      // Card fill
-      dg.fillStyle(col, 1);
-      dg.fillRoundedRect(x - DOOR_W/2, DOOR_Y - DOOR_H/2, DOOR_W, DOOR_H, 22);
-      // Shine
-      dg.fillStyle(0xffffff, 0.35);
-      dg.fillRoundedRect(x - DOOR_W/2 + 8, DOOR_Y - DOOR_H/2 + 8, DOOR_W - 16, DOOR_H * 0.4, { tl:18, tr:18, bl:0, br:0 });
-      // Border
-      dg.lineStyle(4, 0xffffff, 0.8);
-      dg.strokeRoundedRect(x - DOOR_W/2, DOOR_Y - DOOR_H/2, DOOR_W, DOOR_H, 22);
-
-      // Door arch decoration at top
-      dg.fillStyle(0xffffff, 0.25);
-      dg.fillEllipse(x, DOOR_Y - DOOR_H/2 + 14, DOOR_W * 0.55, 28);
+      const drawDoor = (color, borderColor, alpha) => {
+        dg.clear();
+        dg.fillStyle(0x000000, 0.18);
+        dg.fillRoundedRect(x - DOOR_W/2 + 4, DOOR_Y - DOOR_H/2 + 6, DOOR_W, DOOR_H, 22);
+        dg.fillStyle(color, alpha || 1);
+        dg.fillRoundedRect(x - DOOR_W/2, DOOR_Y - DOOR_H/2, DOOR_W, DOOR_H, 22);
+        dg.fillStyle(0xffffff, 0.35);
+        dg.fillRoundedRect(x - DOOR_W/2 + 8, DOOR_Y - DOOR_H/2 + 8, DOOR_W - 16, DOOR_H * 0.4, { tl:18, tr:18, bl:0, br:0 });
+        dg.lineStyle(4, borderColor, 0.8);
+        dg.strokeRoundedRect(x - DOOR_W/2, DOOR_Y - DOOR_H/2, DOOR_W, DOOR_H, 22);
+        dg.fillStyle(0xffffff, 0.25);
+        dg.fillEllipse(x, DOOR_Y - DOOR_H/2 + 14, DOOR_W * 0.55, 28);
+      };
+      drawDoor(CARD_COLOR, CARD_BORDER);
 
       // Answer text
       const label = this.add.text(x, DOOR_Y + 14, question.options[index], {
@@ -486,7 +631,7 @@ export default class MiniGameScene extends Phaser.Scene {
       // "Option N" badge at top
       const badge = this.add.text(x, DOOR_Y - DOOR_H/2 + 22, `Option ${index + 1}`, {
         fontFamily: '"Baloo 2", Arial, sans-serif',
-        fontSize: '14px', color: '#ffffff',
+        fontSize: '14px', color: '#111111',
         stroke: '#00000044', strokeThickness: 2
       }).setOrigin(0.5).setDepth(11);
 
@@ -495,17 +640,23 @@ export default class MiniGameScene extends Phaser.Scene {
         .setDepth(12).setInteractive({ useHandCursor: true });
 
       hit.on('pointerover', () => {
+        if (!this.awaitingAnswer) return;
         this.tweens.add({ targets: [dg, label, badge], y: '-=6', duration: 110, ease: 'Back.easeOut' });
       });
       hit.on('pointerout', () => {
+        if (!this.awaitingAnswer) return;
         this.tweens.add({ targets: [dg, label, badge], y: '+=6', duration: 110, ease: 'Sine.easeOut' });
       });
       hit.on('pointerdown', () => {
         this.tweens.add({ targets: [dg, label, badge], scaleX: 0.95, scaleY: 0.95, duration: 70, yoyo: true });
-        this.submitAnswer(index === question.answer, { hint: question.hint });
+        const isCorrect = index === question.answer;
+        // Highlight correct answer before proceeding
+        this._highlightVocabAnswer(question.answer, isCorrect ? index : -1, drawDoor, index);
+        this.submitAnswer(isCorrect, { hint: question.hint });
       });
 
-      this.modeState.doors.push({ x, answerIndex: index, sprite: dg, hit });
+      // Store drawDoor fn for post-answer highlighting
+      this.modeState.doors.push({ x, answerIndex: index, sprite: dg, hit, drawDoor, label, badge });
       this.challengeLayer.add([dg, label, badge, hit]);
       this.anim.float(this, dg, 6, Phaser.Math.Between(1100, 1600));
       this.anim.float(this, label, 6, dg._tweens?.[0]?.duration || 1300);
@@ -517,69 +668,90 @@ export default class MiniGameScene extends Phaser.Scene {
     this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
   }
 
-  renderMainIdeaCity(question) {
-    this.feedbackText.setText("① Read the passage   ②  Click the MAIN IDEA button   ③  Drag 2 evidence cards into the slots — then hit Submit!");
+  _highlightVocabAnswer(correctIndex, chosenIndex, _unused, _callerIndex) {
+    // Called after any answer: highlight all doors light green (correct) or light red (wrong)
+    if (!this.modeState.doors) return;
+    this.modeState.doors.forEach(door => {
+      const isCorrect = door.answerIndex === correctIndex;
+      door.drawDoor(
+        isCorrect ? 0xc8f7df : 0xffd7d9,
+        isCorrect ? 0x44b073 : 0xdf5a5c,
+        1
+      );
+      // Disable further interaction
+      if (door.hit) door.hit.disableInteractive();
+    });
+  }
 
-    // ── Layout constants ──────────────────────────────────────────────────────
-    const PASS_Y  = 175;
-    const IDEA_Y  = 248;
-    const CARD_Y  = 355;
-    const SLOT_Y  = 462;
-    const BTN_Y   = 558;
+  _highlightArenaChoices(correctIndex, chosenIndex) {
+    if (!this.modeState.arenaChoices) return;
+    this.modeState.arenaChoices.forEach((button, idx) => {
+      const isCorrect = idx === correctIndex;
+      button.setFillStyle(isCorrect ? 0xc8f7df : 0xffd7d9);
+      button.setStrokeStyle(3, isCorrect ? 0x44b073 : 0xdf5a5c, 0.9);
+      button.disableInteractive();
+      if (button.label) {
+        button.label.setColor(isCorrect ? '#1b5f36' : '#8c2f30');
+      }
+    });
+  }
+
+  _highlightEvidenceChoices(correctIndex, chosenIndex) {
+    if (!this.modeState.evidenceStones) return;
+    this.modeState.evidenceStones.forEach((stone, idx) => {
+      const correct = idx === correctIndex;
+      stone.setFillStyle(correct ? 0xd9f8e6 : 0xffe6e8);
+      stone.setStrokeStyle(3, correct ? 0x44cc88 : 0xcc5a66, 1);
+      stone.disableInteractive();
+      if (stone.label) {
+        stone.label.setColor(correct ? '#1b5f36' : '#8c2f30');
+      }
+    });
+  }
+
+  renderMainIdeaCity(question) {
+    this.feedbackText.setText("Read the passage, then drag 2 evidence cards that best support the main idea into the slots below.");
+
+    // ── Layout constants (tighter, no main idea buttons row) ─────────────────
+    const PASS_Y  = 185;
+    const MAIN_Y  = 310;
+    const CARD_Y  = 400;
+    const SLOT_Y  = 498;
+    const BTN_Y   = 588;
 
     // Passage
     const caseText = this.add.text(640, PASS_Y, question.passage, {
       fontFamily: '"Nunito", Arial, sans-serif',
-      fontSize: '18px', color: '#111111',
+      fontSize: '17px', color: '#1a2a3a',
       align: 'center', wordWrap: { width: 1100 }
     }).setOrigin(0.5);
     this.challengeLayer.add(caseText);
 
-    this.modeState.selectedMainIdea = null;
     this.modeState.mainIdeaAssignments = [null, null];
     this.modeState.detailCards = [];
     this.modeState.detailSlots = [];
-    this.modeState.mainIdeaRects = [];
+    this.modeState.mainIdeaRects  = [];
+    this.modeState.mainIdeaLabels = [];
+    // Auto-select correct main idea so submit logic still works unchanged
+    this.modeState.selectedMainIdea = question.mainAnswer;
 
-    // ── Main idea buttons — same color for all 3, dark text ──────────────────
-    const IDEA_COLOR    = 0x4b8df8;   // single uniform blue
-    const IDEA_SELECTED = 0xffffff;   // white when selected
-    const n      = question.mainIdeas.length;
-    const ideaW  = Math.min(360, Math.floor(1160 / n) - 10);
-    const ideaH  = 54;
-    const ideaGap = (1160 - n * ideaW) / (n - 1);
+    // ── Main idea display (non-interactive label) ─────────────────────────────
+    const mainLabelBg = this.add.graphics();
+    mainLabelBg.fillStyle(0xcfe4ff, 1);
+    mainLabelBg.lineStyle(2, 0x4b8df8, 0.6);
+    mainLabelBg.fillRoundedRect(120, MAIN_Y - 26, 1040, 52, 12);
+    mainLabelBg.strokeRoundedRect(120, MAIN_Y - 26, 1040, 52, 12);
+    this.challengeLayer.add(mainLabelBg);
 
-    question.mainIdeas.forEach((idea, idx) => {
-      const bx   = 60 + ideaW / 2 + idx * (ideaW + ideaGap);
-      const rect = this.add.rectangle(bx, IDEA_Y, ideaW, ideaH, IDEA_COLOR)
-        .setStrokeStyle(3, 0x1a5abf, 1).setInteractive({ useHandCursor: true });
-      const label = this.add.text(bx, IDEA_Y, idea, {
-        fontFamily: '"Nunito", Arial, sans-serif',
-        fontSize: '16px', color: '#1a2a3a', fontStyle: 'bold',
-        align: 'center', wordWrap: { width: ideaW - 16 }
-      }).setOrigin(0.5);
-
-      rect.on('pointerover', () => { if (this.modeState.selectedMainIdea !== idx) rect.setAlpha(0.82); });
-      rect.on('pointerout',  () => { if (this.modeState.selectedMainIdea !== idx) rect.setAlpha(1); });
-      rect.on('pointerdown', () => {
-        this.modeState.selectedMainIdea = idx;
-        // Reset all
-        this.modeState.mainIdeaRects.forEach(r => {
-          r.setFillStyle(IDEA_COLOR).setStrokeStyle(3, 0x1a5abf, 1).setAlpha(1);
-        });
-        this.modeState.mainIdeaRects.forEach((_, i) => {
-          this.modeState.mainIdeaLabels[i].setColor('#1a2a3a');
-        });
-        // Highlight selected: white fill, colored border
-        rect.setFillStyle(IDEA_SELECTED).setStrokeStyle(4, 0x1a5abf, 1);
-        label.setColor('#1a5abf');
-        this.feedbackText.setText("✅ Main idea selected!   ③  Now drag 2 evidence cards into the Evidence slots — then hit Submit!");
-      });
-      this.modeState.mainIdeaRects.push(rect);
-      if (!this.modeState.mainIdeaLabels) this.modeState.mainIdeaLabels = [];
-      this.modeState.mainIdeaLabels.push(label);
-      this.challengeLayer.add([rect, label]);
-    });
+    const mainLabelPre = this.add.text(140, MAIN_Y, '📌 Main Idea: ', {
+      fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '15px',
+      color: '#1a5abf', fontStyle: 'bold'
+    }).setOrigin(0, 0.5);
+    const mainLabelText = this.add.text(270, MAIN_Y, question.mainIdeas[question.mainAnswer], {
+      fontFamily: '"Nunito", Arial, sans-serif', fontSize: '15px',
+      color: '#1a2a4a', fontStyle: 'bold', wordWrap: { width: 880 }
+    }).setOrigin(0, 0.5);
+    this.challengeLayer.add([mainLabelPre, mainLabelText]);
 
     // ── Drop slots ────────────────────────────────────────────────────────────
     const slotW = 560, slotH = 80;
@@ -651,7 +823,7 @@ export default class MiniGameScene extends Phaser.Scene {
     });
 
     // Submit button
-    const [btnRect, btnLabel] = this._makeSimpleButton(640, BTN_Y, 'Submit Case ✓', 340, 50, 0xffd36d, () => {
+    const [btnRect, btnLabel] = this._makeSimpleButton(640, BTN_Y, 'Next Question →', 340, 50, 0x4b8df8, () => {
       const selected    = this.modeState.selectedMainIdea;
       const assignments = this.modeState.mainIdeaAssignments;
       if (selected === null)          { this.feedbackText.setText('⚠️ Tap a main idea first!'); return; }
@@ -743,10 +915,13 @@ export default class MiniGameScene extends Phaser.Scene {
     }).setOrigin(0.5);
     this.challengeLayer.add(this.arenaPrompt);
 
+    this.modeState.arenaChoices = [];
     question.options.forEach((option, index) => {
       const button = this.createButton(290 + index * 350, 560, option.toUpperCase(), () => {
+        this._highlightArenaChoices(question.answer, index);
         this.submitAnswer(index === question.answer, { hint: question.hint, arena: true });
       }, 0xffdda3);
+      this.modeState.arenaChoices.push(button);
       this.challengeLayer.add([button, button.label]);
     });
   }
@@ -895,9 +1070,14 @@ export default class MiniGameScene extends Phaser.Scene {
     }).setOrigin(0.5);
     this.challengeLayer.add([claim, passage]);
 
+    this.modeState.evidenceStones = [];
     question.options.forEach((option, index) => {
       const stone = this.createOptionCard(640, 366 + index * 92, 980, 76, option);
-      stone.on("pointerdown", () => this.submitAnswer(index === question.answer, { hint: question.hint, mountain: true }));
+      stone.on("pointerdown", () => {
+        this._highlightEvidenceChoices(question.answer, index);
+        this.submitAnswer(index === question.answer, { hint: question.hint, mountain: true });
+      });
+      this.modeState.evidenceStones.push(stone);
       this.challengeLayer.add([stone, stone.label]);
     });
   }
@@ -918,13 +1098,14 @@ export default class MiniGameScene extends Phaser.Scene {
 
   // Returns a Rectangle that IS the interactive button; .label holds the Text.
   // Callers do: challengeLayer.add([btn, btn.label])
-  createButton(x, y, text, onClick, fill = 0xffd36d) {
-    const btn = this.add.rectangle(x, y, 400, 54, fill)
+  createButton(x, y, text, onClick, fill = 0xffd36d, width = 400, height = 54) {
+    const btn = this.add.rectangle(x, y, width, height, fill)
       .setStrokeStyle(3, 0xffffff, 0.7)
       .setInteractive({ useHandCursor: true });
     const label = this.add.text(x, y, text, {
       fontFamily: '"Baloo 2", Arial, sans-serif',
-      fontSize: '22px', color: '#1a3a58', fontStyle: 'bold', align: 'center'
+      fontSize: '22px', color: '#1a3a58', fontStyle: 'bold', align: 'center',
+      wordWrap: { width: width - 24 }
     }).setOrigin(0.5);
     btn.label = label;
     btn.on('pointerover', () => { btn.setFillStyle(0xffe082); label.setScale(1.04); });
@@ -953,8 +1134,12 @@ export default class MiniGameScene extends Phaser.Scene {
       this.correctCount += 1;
       this.combo += 1;
       this.guardianHp = Math.max(0, this.guardianHp - 100 / this.roundTarget);
-      this.player.gainXP(this.getRoundXpReward());
-      this.player.gainStars(1);
+      if (this.isFirstAttempt) {
+        const xpGain = this.getRoundXpReward();
+        this.player.gainXP(xpGain);
+        this.player.gainStars(1);
+        this._xpEarnedThisRun += xpGain;
+      }
       this.audio.playSfx("sfx_correct", 0.42);
       this.anim.celebrationBurst(this, 640, 360);
       feedback = Phaser.Utils.Array.GetRandom(ENCOURAGING_LINES);
@@ -966,11 +1151,13 @@ export default class MiniGameScene extends Phaser.Scene {
       this.audio.playSfx("sfx_wrong", 0.34);
       this.anim.wrongShake(this);
 
-      feedback = Phaser.Utils.Array.GetRandom(GENTLE_LINES);
       if (extras.timedOut) {
-        feedback = `Time is up. Hint: ${this.currentQuestion.hint}`;
-      } else if (this.difficulty.shouldOfferHint(this.gateId)) {
-        feedback = `${feedback} Hint: ${extras.hint || this.currentQuestion.hint}`;
+        feedback = `⏱️ Time's up!  Hint: ${this.currentQuestion.hint}`;
+      } else {
+        const hint = extras.hint || this.currentQuestion?.hint || '';
+        feedback = hint
+          ? `❌ Incorrect.  Hint: ${hint}`
+          : `❌ Incorrect — try the next one!`;
       }
     }
 
@@ -1008,15 +1195,28 @@ export default class MiniGameScene extends Phaser.Scene {
 
   playArenaHit(heroHit) {
     const target = heroHit ? this.arenaEnemy : this.arenaHero;
-    if (!target) {
-      return;
-    }
+    if (!target) return;
+    const dir = heroHit ? -30 : 30;
+    // Knock-back + flash
     this.tweens.add({
-      targets: target,
-      x: target.x + (heroHit ? -24 : 24),
-      yoyo: true,
-      duration: 70,
-      repeat: 2
+      targets: target, x: target.x + dir,
+      yoyo: true, duration: 70, repeat: 2,
+      onComplete: () => { target.x = heroHit ? 1180 : 100; }
+    });
+    // Flash white (scale spike)
+    this.tweens.add({
+      targets: target, scaleX: 1.4, scaleY: 1.4,
+      yoyo: true, duration: 80,
+      onComplete: () => { target.scaleX = 1; target.scaleY = 1; }
+    });
+    // Spawn hit emoji
+    const hitEmoji = this.add.text(target.x, target.y - 40,
+      heroHit ? '💥' : '😓', { fontSize: '36px' }
+    ).setOrigin(0.5).setDepth(10);
+    this.tweens.add({
+      targets: hitEmoji, y: hitEmoji.y - 60, alpha: 0,
+      duration: 700, ease: 'Sine.easeOut',
+      onComplete: () => hitEmoji.destroy()
     });
   }
 
@@ -1032,64 +1232,290 @@ export default class MiniGameScene extends Phaser.Scene {
   }
 
   finishGateRun() {
+    this._gameFinished = true;   // disable leave-warning from this point on
+    window.elaIsPlaying = false; // no longer mid-game — tab close won't alert
     this.clearChallengeLayer();
     const total = this.correctCount + this.wrongCount;
     const accuracy = total > 0 ? this.correctCount / total : 0;
-    const pass = accuracy >= 0.65;
+    const pass = accuracy >= 0.60;
+    const pct  = Math.round(accuracy * 100);
+
+    // Star rating: 60-74% → 1 star, 75-89% → 2 stars, 90-100% → 3 stars
+    const stars = accuracy >= 0.90 ? 3 : accuracy >= 0.75 ? 2 : accuracy >= 0.60 ? 1 : 0;
+    const starDisplay = '⭐'.repeat(stars) + '☆'.repeat(3 - stars);
 
     this.feedbackText.setText(pass ? "Gate challenge cleared!" : "Practice round complete. You can retry for better mastery.");
 
-    const card = this.add.image(640, 398, "panel").setDisplaySize(980, 450);
-    const uiFinish = (window.elaUI && window.elaUI.sizes) ? window.elaUI.sizes : { title:86, body:34, small:24 };
-    const title = this.add.text(640, 250, pass ? "Crystal Restored!" : "Keep Training", {
+    // Result card — fixed geometry: top=173, bottom=623, centre=(640,398)
+    const RC_TOP  = 173;
+    const RC_BOT  = 623;
+    const RC_CX   = 640;
+    const card = this.add.graphics();
+    card.fillStyle(0xffffff, 1);
+    card.lineStyle(3, pass ? 0x4caf7a : 0x4b8df8, 0.6);
+    card.fillRoundedRect(RC_CX - 490, RC_TOP, 980, RC_BOT - RC_TOP, 22);
+    card.strokeRoundedRect(RC_CX - 490, RC_TOP, 980, RC_BOT - RC_TOP, 22);
+
+    // Coloured top stripe
+    const stripeG = this.add.graphics();
+    stripeG.fillStyle(pass ? 0x4caf7a : 0x4b8df8, 1);
+    stripeG.fillRoundedRect(RC_CX - 490, RC_TOP, 980, 60, { tl:22, tr:22, bl:0, br:0 });
+    stripeG.fillStyle(0xffffff, 0.18);
+    stripeG.fillRoundedRect(RC_CX - 486, RC_TOP + 4, 972, 26, { tl:20, tr:20, bl:0, br:0 });
+
+    const TITLE_Y = RC_TOP + 90;
+    const STARS_Y = RC_TOP + 158;
+    const STATS_Y = RC_TOP + 220;
+    const BTNS_Y  = RC_BOT - 88;
+
+    const title = this.add.text(RC_CX, TITLE_Y,
+      pass ? "✨ Crystal Restored!" : "📚 Keep Practising", {
       fontFamily: '"Baloo 2", Arial, sans-serif',
-      fontSize: `${uiFinish.title}px`,
+      fontSize: '52px',
       color: pass ? "#237247" : "#315d87",
-      stroke: "#ffffff",
-      strokeThickness: 8
+      stroke: "#ffffff", strokeThickness: 6
     }).setOrigin(0.5);
-    const stats = this.add.text(640, 352, [
-      `Correct: ${this.correctCount}`,
-      `Needs review: ${this.wrongCount}`,
-      `Accuracy: ${Math.round(accuracy * 100)}%`
+
+    // Star rating display
+    const starsText = this.add.text(RC_CX, STARS_Y, starDisplay, {
+      fontSize: '44px'
+    }).setOrigin(0.5);
+    const starsLabel = this.add.text(RC_CX, STARS_Y + 46, `${pct}% accuracy`, {
+      fontFamily: '"Nunito", Arial, sans-serif', fontSize: '18px',
+      color: '#5a7a9a', fontStyle: 'bold'
+    }).setOrigin(0.5);
+
+    const passLabel = pass ? '' : '\n❤️ -1 life (below 60%)';
+    const stats = this.add.text(RC_CX, STATS_Y + 30, [
+      `Correct: ${this.correctCount}   Incorrect: ${this.wrongCount}${passLabel}`
     ].join("\n"), {
-      fontFamily: '"Baloo 2", Arial, sans-serif',
-      fontSize: `${uiFinish.body}px`,
-      align: "center",
-      color: "#244a69",
-      lineSpacing: 10
+      fontFamily: '"Nunito", Arial, sans-serif',
+      fontSize: '20px', align: "center",
+      color: "#244a69", lineSpacing: 8
     }).setOrigin(0.5);
-    this.challengeLayer.add([card, title, stats]);
+
+    this.challengeLayer.add([card, stripeG, title, starsText, starsLabel, stats]);
+
+    // Stripe title label
+    const stripeLbl = this.add.text(RC_CX, RC_TOP + 30,
+      pass ? '🏆  Mission Complete' : '📋  Round Summary', {
+      fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '20px',
+      color: '#ffffff', fontStyle: 'bold'
+    }).setOrigin(0.5);
+    this.challengeLayer.add(stripeLbl);
+
+    // Override BTNS_Y reference for the buttons section below
+    const _BTNS_Y = BTNS_Y;
 
     if (pass) {
-      this.progression.completeGate(this.gateId);
-      this.player.gainXP(120);
-      this.player.gainStars(4);
-      this.audio.playSfx("sfx_level_up", 0.5);
-      this.anim.confetti(this, 640, 350);
-      this.achievements.checkGateCompletion({
-        accuracy,
-        completedCount: this.progression.getCompletedCount()
-      });
-      this.achievements.checkCampaignComplete(this.progression);
+      if (this.isFirstAttempt) {
+        // First clear: unlock gate progression + full rewards
+        this.progression.completeGate(this.gateId, stars);
+        this.player.gainXP(120);
+        this.player.gainStars(4);
+        this.audio.playSfx("sfx_level_up", 0.5);
+        this.anim.confetti(this, 640, 350);
+        this.achievements.checkGateCompletion({
+          accuracy,
+          completedCount: this.progression.getCompletedCount()
+        });
+        this.achievements.checkCampaignComplete(this.progression);
+      } else {
+        // Replay pass: save improved star score, small celebration
+        this.progression.completeGate(this.gateId, stars);
+        this.audio.playSfx("sfx_level_up", 0.4);
+        this.anim.confetti(this, 640, 350);
+      }
     } else {
-      this.player.gainXP(35);
-      this.player.restoreLife(1);
+      // Failed: reverse XP earned this run, then lose 1 life
+      if (this._xpEarnedThisRun > 0) {
+        this.player.reverseXP(this._xpEarnedThisRun);
+      }
+      this.player.loseLife();
+      this.eventsBus.emit("ui:message", "❤️ -1 life. Lives refill every 5 minutes.");
     }
 
     this.eventsBus.emit("save:requested");
 
-    const leftButton = this.createButton(450, 548, pass ? "Return to Map" : "Retry Gate", () => {
-      if (pass) {
-        this.scene.start("WorldMapScene");
+    // ── Result buttons: Next Game | World Map | Replay (on pass) — centred ──
+    const nextGateId = Math.min(this.gateId + 1, 5);
+    const isLastGate = this.gateId === 5;
+    const BTN_W = 320;
+    const BTN_Y_POS = 548;
+    const GAP = 24;
+
+    if (pass) {
+      // On pass: 3 buttons (or 2 if last gate)
+      if (isLastGate) {
+        // Last gate pass: "World Map" (left) + "Replay" (right)
+        const leftX = 640 - (BTN_W + GAP) / 2;
+        const rightX = 640 + (BTN_W + GAP) / 2;
+
+        const mapBtn = this.createButton(leftX, BTN_Y_POS, "🗺️  World Map", () => {
+          this.scene.start("WorldMapScene");
+        }, 0x4caf7a);
+        mapBtn.label.setColor('#ffffff');
+
+        const replayBtn = this.createButton(rightX, BTN_Y_POS, "🔄  Replay", () => {
+          this.scene.restart({ gateId: this.gateId });
+        }, 0xddeeff);
+
+        this.challengeLayer.add([mapBtn, mapBtn.label, replayBtn, replayBtn.label]);
       } else {
-        this.scene.restart({ gateId: this.gateId });
+        // Not last gate: "Next Game" (left) + "World Map" (middle) + "Replay" (right)
+        const totalW = 3 * BTN_W + 2 * GAP;
+        const startX = 640 - totalW / 2 + BTN_W / 2;
+        const leftX = startX;
+        const midX = startX + BTN_W + GAP;
+        const rightX = startX + 2 * (BTN_W + GAP);
+
+        const nextBtn = this.createButton(leftX, BTN_Y_POS, "▶  Next Game", () => {
+          this.scene.start("GateScene", { gateId: nextGateId });
+        }, 0x4caf7a);
+        nextBtn.label.setColor('#ffffff');
+
+        const mapBtn = this.createButton(midX, BTN_Y_POS, "🗺️  World Map", () => {
+          this.scene.start("WorldMapScene");
+        }, 0x6ec6d4);
+        mapBtn.label.setColor('#ffffff');
+
+        const replayBtn = this.createButton(rightX, BTN_Y_POS, "🔄  Replay", () => {
+          this.scene.restart({ gateId: this.gateId });
+        }, 0xddeeff);
+
+        this.challengeLayer.add([nextBtn, nextBtn.label, mapBtn, mapBtn.label, replayBtn, replayBtn.label]);
       }
-    }, pass ? 0xbeecc8 : 0xffd777);
-    const rightButton = this.createButton(830, 548, "Gate Briefing", () => {
-      this.scene.start("GateScene", { gateId: this.gateId });
-    }, 0xeaf3ff);
-    this.challengeLayer.add([leftButton, leftButton.label, rightButton, rightButton.label]);
+    } else {
+      // On fail: "Replay" (left) + "World Map" (right)
+      const leftX = 640 - (BTN_W + GAP) / 2;
+      const rightX = 640 + (BTN_W + GAP) / 2;
+
+      const replayBtn = this.createButton(leftX, BTN_Y_POS, "🔄  Replay", () => {
+        this.scene.restart({ gateId: this.gateId });
+      }, 0xff8c42);
+      replayBtn.label.setColor('#ffffff');
+
+      const mapBtn = this.createButton(rightX, BTN_Y_POS, "🗺️  World Map", () => {
+        this.scene.start("WorldMapScene");
+      }, 0xddeeff);
+
+      this.challengeLayer.add([replayBtn, replayBtn.label, mapBtn, mapBtn.label]);
+    }
+  }
+
+  // ── Leave warning dialog ──────────────────────────────────────────────────
+  _showLeaveWarning() {
+    // Don't double-open
+    if (this._leaveWarningOpen) return;
+    this._leaveWarningOpen = true;
+
+    const W = 1280, H = 720;
+    const CW = 560, CH = 240;
+    const CX = W/2, CY = H/2;
+
+    const backdrop = this.add.rectangle(W/2, H/2, W, H, 0x000000, 0.65).setDepth(80).setInteractive();
+    const cardG = this.add.graphics().setDepth(81);
+    cardG.fillStyle(0xfffef8, 1);
+    cardG.lineStyle(3, 0xffaa44, 1);
+    cardG.fillRoundedRect(CX-CW/2, CY-CH/2, CW, CH, 18);
+    cardG.strokeRoundedRect(CX-CW/2, CY-CH/2, CW, CH, 18);
+
+    const hdrG = this.add.graphics().setDepth(81);
+    hdrG.fillStyle(0xff7c2a, 1);
+    hdrG.fillRoundedRect(CX-CW/2, CY-CH/2, CW, 50, { tl:18, tr:18, bl:0, br:0 });
+
+    const title = this.add.text(CX, CY-CH/2+25, '⚠️  Leave this Gate?', {
+      fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '20px',
+      color: '#ffffff', fontStyle: 'bold'
+    }).setOrigin(0.5).setDepth(82);
+
+    const msg = this.add.text(CX, CY-10, 'Your progress in this round will be lost.\nYou will also lose ❤️ 1 life.', {
+      fontFamily: '"Nunito", Arial, sans-serif', fontSize: '16px',
+      color: '#3a2000', align: 'center', lineSpacing: 6
+    }).setOrigin(0.5).setDepth(82);
+
+    // Confirm leave button
+    const confirmBg = this.add.graphics().setDepth(82);
+    confirmBg.fillStyle(0xe05050, 1);
+    confirmBg.fillRoundedRect(CX-240, CY+CH/2-70, 210, 44, 12);
+    const confirmTxt = this.add.text(CX-135, CY+CH/2-48, '🚪  Leave & Lose Life', {
+      fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '15px',
+      color: '#ffffff', fontStyle: 'bold'
+    }).setOrigin(0.5).setDepth(83);
+    const confirmHit = this.add.rectangle(CX-135, CY+CH/2-48, 210, 44, 0, 0)
+      .setDepth(84).setInteractive({ useHandCursor: true });
+    confirmHit.on('pointerdown', () => {
+      window.elaIsPlaying = false;
+      this.player.loseLife();
+      this.eventsBus.emit('ui:message', '❤️ -1 life. Lives refill every 5 minutes.');
+      this.eventsBus.emit('save:requested');
+      destroyLeave();
+      this.scene.start('WorldMapScene');
+    });
+
+    // Stay button
+    const stayBg = this.add.graphics().setDepth(82);
+    stayBg.fillStyle(0x22aa55, 1);
+    stayBg.fillRoundedRect(CX+30, CY+CH/2-70, 210, 44, 12);
+    const stayTxt = this.add.text(CX+135, CY+CH/2-48, '✅  Keep Playing', {
+      fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '15px',
+      color: '#ffffff', fontStyle: 'bold'
+    }).setOrigin(0.5).setDepth(83);
+    const stayHit = this.add.rectangle(CX+135, CY+CH/2-48, 210, 44, 0, 0)
+      .setDepth(84).setInteractive({ useHandCursor: true });
+    stayHit.on('pointerdown', () => destroyLeave());
+
+    const leaveEls = [backdrop, cardG, hdrG, title, msg, confirmBg, confirmTxt, confirmHit, stayBg, stayTxt, stayHit];
+    const destroyLeave = () => {
+      this._leaveWarningOpen = false;
+      leaveEls.forEach(o => { try { o.destroy(); } catch(e){} });
+    };
+  }
+
+  // ── No lives screen (shown at create if player has 0 lives) ───────────────
+  _showNoLivesScreen() {
+    const W = 1280, H = 720;
+    const sys = this.systemsRef;
+
+    const backdrop = this.add.rectangle(W/2, H/2, W, H, 0x0d2e4a, 0.97).setDepth(90).setInteractive();
+    const cardG = this.add.graphics().setDepth(91);
+    cardG.fillStyle(0xfafcff, 1);
+    cardG.lineStyle(3, 0x3a9fd4, 1);
+    cardG.fillRoundedRect(W/2-320, H/2-160, 640, 320, 20);
+    cardG.strokeRoundedRect(W/2-320, H/2-160, 640, 320, 20);
+
+    this.add.text(W/2, H/2-90, '💔  No Lives Left!', {
+      fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '32px',
+      color: '#cc2244', stroke: '#ffffff', strokeThickness: 4
+    }).setOrigin(0.5).setDepth(92);
+
+    // Compute regen
+    let regenMsg = 'Your lives refill 1 every 5 minutes.';
+    if (sys && sys.player && typeof sys.player.msUntilNextLife === 'function') {
+      const ms = sys.player.msUntilNextLife();
+      if (ms > 0) {
+        const mins = Math.floor(ms / 60000);
+        const secs = Math.floor((ms % 60000) / 1000);
+        regenMsg = `Next life in: ${mins}:${String(secs).padStart(2,'0')}
+Lives refill 1 every 5 minutes.`;
+      }
+    }
+
+    this.add.text(W/2, H/2+0, regenMsg, {
+      fontFamily: '"Nunito", Arial, sans-serif', fontSize: '18px',
+      color: '#1a3a58', align: 'center', lineSpacing: 8
+    }).setOrigin(0.5).setDepth(92);
+
+    // Back to map button
+    const btnBg = this.add.graphics().setDepth(92);
+    btnBg.fillStyle(0x4b8df8, 1);
+    btnBg.fillRoundedRect(W/2-120, H/2+90, 240, 48, 14);
+    this.add.text(W/2, H/2+114, '🗺️  Back to World Map', {
+      fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '17px',
+      color: '#ffffff', fontStyle: 'bold'
+    }).setOrigin(0.5).setDepth(93);
+    const btnHit = this.add.rectangle(W/2, H/2+114, 240, 48, 0, 0).setDepth(94).setInteractive({ useHandCursor: true });
+    btnHit.on('pointerdown', () => this.scene.start('WorldMapScene'));
   }
 
   getThemeKey(gateId) {
@@ -1119,7 +1545,9 @@ export default class MiniGameScene extends Phaser.Scene {
       }, null);
 
       if (nearest && nearest.distance < 180) {
-        this.submitAnswer(nearest.door.answerIndex === this.currentQuestion.answer, {
+        const isCorrect = nearest.door.answerIndex === this.currentQuestion.answer;
+        this._highlightVocabAnswer(this.currentQuestion.answer, nearest.door.answerIndex, null, null);
+        this.submitAnswer(isCorrect, {
           hint: this.currentQuestion.hint
         });
       } else {

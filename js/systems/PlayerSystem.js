@@ -24,6 +24,7 @@ export default class PlayerSystem {
       level: 1,
       lives: 5,
       maxLives: 5,
+      lastLifeLostAt: null,   // ISO timestamp of last life lost (for regen)
       stars: 0,
       achievements: [],
       cosmeticsUnlocked: ["Explorer Tunic"],
@@ -49,7 +50,32 @@ export default class PlayerSystem {
       this.state.bonusesUnlocked = [];
     }
 
+    // Compute life regen since last save (1 life per 5 minutes)
+    this._applyLifeRegen();
     this.emitUpdate();
+  }
+
+  _applyLifeRegen() {
+    if (this.state.lives >= this.state.maxLives) return;
+    if (!this.state.lastLifeLostAt) return;
+    const REGEN_MS = 5 * 60 * 1000;  // 5 minutes
+    const elapsed  = Date.now() - new Date(this.state.lastLifeLostAt).getTime();
+    const gained   = Math.floor(elapsed / REGEN_MS);
+    if (gained > 0) {
+      this.state.lives = Math.min(this.state.maxLives, this.state.lives + gained);
+      if (this.state.lives >= this.state.maxLives) {
+        this.state.lastLifeLostAt = null;
+      }
+    }
+  }
+
+  // Returns ms until next life regenerates (0 if full)
+  msUntilNextLife() {
+    if (this.state.lives >= this.state.maxLives || !this.state.lastLifeLostAt) return 0;
+    const REGEN_MS = 5 * 60 * 1000;
+    const elapsed  = Date.now() - new Date(this.state.lastLifeLostAt).getTime();
+    const nextAt   = REGEN_MS - (elapsed % REGEN_MS);
+    return nextAt;
   }
 
   toJSON() {
@@ -94,13 +120,22 @@ export default class PlayerSystem {
     return null;
   }
 
+  // Reverse XP earned in a failed run — clamp floor at 0, never drop a level
+  reverseXP(amount) {
+    this.state.xp = Math.max(0, this.state.xp - amount);
+    this.emitUpdate();
+  }
+
   gainStars(amount) {
     this.state.stars += amount;
     this.emitUpdate();
   }
 
   loseLife() {
-    this.state.lives = Math.max(0, this.state.lives - 1);
+    if (this.state.lives > 0) {
+      this.state.lives -= 1;
+      this.state.lastLifeLostAt = new Date().toISOString();
+    }
     this.emitUpdate();
     return this.state.lives;
   }

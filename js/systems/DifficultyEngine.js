@@ -51,13 +51,6 @@ export default class DifficultyEngine {
   }
 
   getQuestionCountForRun(gateId) {
-    const score = this.getGateState(gateId).score;
-    if (score >= 2) {
-      return 7;
-    }
-    if (score <= -2) {
-      return 5;
-    }
     return 6;
   }
 

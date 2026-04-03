@@ -58,6 +58,8 @@ export default class WorldMapScene extends Phaser.Scene {
 
     this.physics.world.setBounds(0, 0, WORLD_W, WORLD_H);
     this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
+    this.cameras.main.setBackgroundColor(0x7ecfff);
+    this.cameras.main.setZoom(1);
 
     this._buildBackground();
     this._buildPath(progression);
@@ -76,20 +78,52 @@ export default class WorldMapScene extends Phaser.Scene {
     // ── Map drag-to-scroll ────────────────────────────────────────────────────
     this.input.on('pointermove', (pointer) => {
       if (!pointer.isDown) return;
-      // Only scroll if not hovering a gate node (handled by hit circles)
       const cam = this.cameras.main;
-      cam.scrollX -= (pointer.x - pointer.prevPosition.x) / cam.zoom;
-      cam.scrollY -= (pointer.y - pointer.prevPosition.y) / cam.zoom;
+      const dx = (pointer.x - pointer.prevPosition.x) / cam.zoom;
+      const dy = (pointer.y - pointer.prevPosition.y) / cam.zoom;
+      // Direct mapping: drag direction should match camera pan direction.
+      cam.scrollX -= dx;
+      cam.scrollY -= dy;
     });
 
-    // Mouse-wheel scroll (horizontal)
-    this.input.on('wheel', (pointer, objs, deltaX, deltaY) => {
+    // Mouse-wheel / touchpad scroll — support both axes with natural mapping
+    this.input.on('wheel', (pointer, objs, deltaX, deltaY, deltaZ) => {
       const cam = this.cameras.main;
-      cam.scrollX += deltaY * 1.2;
+      cam.scrollX += deltaX * 0.8;
+      cam.scrollY += deltaY * 0.8;
     });
 
     // Arrow key scroll
     this._cursors = this.input.keyboard.createCursorKeys();
+
+    this._overviewMode = false;
+    events.on('worldmap:toggleOverview', () => this.toggleOverview(), this);
+
+    // request handles from UIScene to keep text in sync
+    events.on('worldmap:requestOverviewState', () => {
+      events.emit('worldmap:overviewChanged', this._overviewMode);
+    }, this);
+  }
+
+  toggleOverview() {
+    this._overviewMode = !this._overviewMode;
+    this.sys$.events.emit('worldmap:overviewChanged', this._overviewMode);
+
+    if (this._overviewMode) {
+      const viewportW = this.scale.width;
+      const viewportH = this.scale.height - 72; // account for HUD bar height
+      const zoomX = viewportW / WORLD_W;
+      const zoomY = viewportH / WORLD_H;
+      const zoom  = Math.min(zoomX, zoomY);
+      this.cameras.main.pan(WORLD_W / 2, WORLD_H / 2, 400, 'Sine.easeInOut');
+      this.cameras.main.zoomTo(zoom, 400, 'Sine.easeInOut');
+    } else {
+      const gateId = Math.min(this.sys$.progression?.state?.unlockedGate || 1, 5);
+      const pos = { 1:{x:380,y:920},2:{x:900,y:640},3:{x:1330,y:460},4:{x:1770,y:760},5:{x:2140,y:360} };
+      const p = pos[gateId] || pos[1];
+      this.cameras.main.pan(p.x, p.y, 400, 'Sine.easeInOut');
+      this.cameras.main.zoomTo(1, 400, 'Sine.easeInOut');
+    }
   }
 
   // ── BACKGROUND ──────────────────────────────────────────────────────────────
@@ -269,12 +303,13 @@ export default class WorldMapScene extends Phaser.Scene {
         stroke: '#1a3a58', strokeThickness: 5, align: 'center'
       }).setOrigin(0.5).setDepth(9);
 
-      // Stars below label
+      // Stars below label — show earned stars (1, 2, or 3) if completed
       const starY = pos.y + NODE_R + 50;
+      const gateStars = completed ? (progression.state.gateStars?.[gate.id] || 1) : 0;
       for (let s = 0; s < 3; s++) {
-        this.add.text(pos.x + (s - 1) * 24, starY, completed ? '⭐' : '☆', {
-          fontSize: completed ? '26px' : '24px'
-        }).setOrigin(0.5).setDepth(9).setAlpha(completed ? 1 : 0.4);
+        this.add.text(pos.x + (s - 1) * 24, starY, s < gateStars ? '⭐' : '☆', {
+          fontSize: s < gateStars ? '26px' : '24px'
+        }).setOrigin(0.5).setDepth(9).setAlpha(s < gateStars ? 1 : 0.4);
       }
 
       // ── Idle animation: gentle "small→big→small" breathe ─────────────────
@@ -324,8 +359,36 @@ export default class WorldMapScene extends Phaser.Scene {
       } else {
         const hit = this.add.circle(pos.x, pos.y, NODE_R + 12, 0x000000, 0)
           .setDepth(15).setInteractive({ useHandCursor: true });
+
+        // Locked hover tooltip
+        let lockedTooltip = null;
+        hit.on('pointerover', () => {
+          if (lockedTooltip) return;
+          const msg = gate.id === 1 ? '🔒 Start here to begin!' : `🔒 Complete Gate ${gate.id - 1} first!`;
+          // Tooltip bubble above the node
+          const tx = pos.x, ty = pos.y - NODE_R - 20;
+          const tbg = this.add.graphics().setDepth(20);
+          tbg.fillStyle(0x1a3a58, 0.93);
+          tbg.lineStyle(2, 0x44ddff, 0.8);
+          tbg.fillRoundedRect(tx - 160, ty - 40, 320, 40, 10);
+          tbg.strokeRoundedRect(tx - 160, ty - 40, 320, 40, 10);
+          // Arrow pointing down
+          tbg.fillStyle(0x1a3a58, 0.93);
+          tbg.fillTriangle(tx - 8, ty, tx + 8, ty, tx, ty + 10);
+          const ttxt = this.add.text(tx, ty - 20, msg, {
+            fontFamily: '"Baloo 2", Arial, sans-serif', fontSize: '15px',
+            color: '#ffffff', align: 'center'
+          }).setOrigin(0.5).setDepth(21);
+          lockedTooltip = [tbg, ttxt];
+        });
+        hit.on('pointerout', () => {
+          if (lockedTooltip) {
+            lockedTooltip.forEach(o => { try { o.destroy(); } catch(e){} });
+            lockedTooltip = null;
+          }
+        });
         hit.on('pointerdown', () => {
-          events.emit('ui:message', `🔒 Complete Gate ${gate.id - 1} first!`);
+          events.emit('ui:message', gate.id === 1 ? '🔒 This is the first gate!' : `🔒 Complete Gate ${gate.id - 1} first!`);
           // Locked: tiny shake, no scale drift
           this.tweens.add({ targets: container, x: pos.x + 7, duration: 55, yoyo: true, repeat: 3,
             onComplete: () => { container.x = pos.x; } });

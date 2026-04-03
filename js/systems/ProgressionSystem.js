@@ -8,6 +8,7 @@ export default class ProgressionSystem {
     return {
       unlockedGate: 1,
       completedGates: {},
+      gateStars: {},
       restoredCrystals: 0,
       bossUnlocked: false
     };
@@ -21,6 +22,9 @@ export default class ProgressionSystem {
     };
     if (!this.state.completedGates || typeof this.state.completedGates !== "object") {
       this.state.completedGates = {};
+    }
+    if (!this.state.gateStars || typeof this.state.gateStars !== "object") {
+      this.state.gateStars = {};
     }
     this.refreshBossUnlock();
     this.emitUpdate();
@@ -38,10 +42,15 @@ export default class ProgressionSystem {
     return Boolean(this.state.completedGates[gateId]);
   }
 
-  completeGate(gateId) {
+  completeGate(gateId, stars = 1) {
     if (!this.state.completedGates[gateId]) {
       this.state.completedGates[gateId] = true;
       this.state.restoredCrystals += 1;
+    }
+    // Always update stars if new score is better
+    const prevStars = this.state.gateStars[gateId] || 0;
+    if (stars > prevStars) {
+      this.state.gateStars[gateId] = stars;
     }
 
     this.state.unlockedGate = Math.max(this.state.unlockedGate, Math.min(5, gateId + 1));
@@ -54,7 +63,7 @@ export default class ProgressionSystem {
   }
 
   getCompletedCount() {
-    return Object.keys(this.state.completedGates).length;
+    return Math.min(5, Object.keys(this.state.completedGates).length);
   }
 
   getCompletionPercent() {
