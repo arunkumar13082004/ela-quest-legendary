@@ -17,18 +17,18 @@ export default class IntroScene extends Phaser.Scene {
     const H = this.scale.height;  // 720
 
     // ── Layout constants ───────────────────────────────────────────────────────
-    const CARD_X   = W / 2 - 480;
-    const CARD_Y   = 185;
-    const CARD_W   = 960;
-    const CARD_H   = 490;
+    const CARD_X   = W / 2 - 430;
+    const CARD_Y   = 150;
+    const CARD_W   = 860;
+    const CARD_H   = 430;
     const BANNER_H = 54;
     const STORY_Y0 = 268;
     const STORY_GAP= 44;
-    const BTN1_Y   = 490;
-    const BTN2_Y   = 580;
-    const BTN_W    = 840;
-    const BTN_H    = 70;
-    const BADGE_Y  = H - 48;
+    const BTN1_Y   = 460;
+    const BTN2_Y   = 530;
+    const BTN_W    = 560;
+    const BTN_H    = 48;
+    const BADGE_Y  = CARD_Y + CARD_H + 8;
 
     // ── BACKGROUND — light pastel sky ─────────────────────────────────────────
     const bg = this.add.graphics();
@@ -114,30 +114,57 @@ export default class IntroScene extends Phaser.Scene {
     });
 
     // ── BUTTONS ───────────────────────────────────────────────────────────────
-    const hasProgress = systems.progress.getCompletedCount() > 0 || systems.player.state.level > 1;
+    const progressState = systems.progress.state || {};
+    const playerState = systems.player.state || {};
+    const hasProgress =
+      Boolean(progressState.hasStartedAdventure) ||
+      (systems.progress.getCompletedCount() > 0) ||
+      ((progressState.unlockedGate || 1) > 1) ||
+      ((progressState.restoredCrystals || 0) > 0) ||
+      ((playerState.level || 1) > 1) ||
+      ((playerState.xp || 0) > 0) ||
+      ((playerState.stars || 0) > 0) ||
+      (Array.isArray(playerState.achievements) && playerState.achievements.length > 0);
 
-    this._makeButton(W/2, BTN1_Y,
-      hasProgress ? '🚀  Continue Adventure' : '🚀  Begin Adventure!',
-      BTN_W, BTN_H, 0x7bbfa0, 0x5a9e82, '#1a3a2a',
-      () => {
-        this._burst(W/2, BTN1_Y);
-        systems.events.emit('ui:toggle', true);
-        this.scene.start('WorldMapScene');
-      }
-    );
-
-    this._makeButton(W/2, BTN2_Y, '🔄  New Game',
-      BTN_W, BTN_H, 0x7aaccc, 0x4e8aaa, '#1a2e3a',
-      () => {
-        this._burst(W/2, BTN2_Y);
-        systems.progress.resetCampaign();
-        systems.player.hydrate();
-        systems.difficulty.hydrate();
-        systems.events.emit('save:requested');
-        systems.events.emit('ui:toggle', true);
-        this.scene.start('WorldMapScene');
-      }
-    );
+    if (hasProgress) {
+      // Returning player: Continue + New Game (two buttons)
+      this._makeButton(W/2, BTN1_Y, '🚀  Continue Adventure',
+        BTN_W, BTN_H, 0x7bbfa0, 0x5a9e82, '#1a3a2a',
+        () => {
+          this._burst(W/2, BTN1_Y);
+          systems.progress.markAdventureStarted();
+          systems.events.emit('save:requested');
+          systems.events.emit('ui:toggle', true);
+          this.scene.start('WorldMapScene');
+        }
+      );
+      this._makeButton(W/2, BTN2_Y, '🔄  New Game',
+        BTN_W, BTN_H, 0x7aaccc, 0x4e8aaa, '#1a2e3a',
+        () => {
+          this._burst(W/2, BTN2_Y);
+          systems.progress.resetCampaign();
+          systems.player.hydrate();
+          systems.difficulty.hydrate();
+          systems.progress.markAdventureStarted();
+          systems.events.emit('save:requested');
+          systems.events.emit('ui:toggle', true);
+          this.scene.start('WorldMapScene');
+        }
+      );
+    } else {
+      // First-time player: single centred "Begin Adventure" button
+      const singleBtnY = (BTN1_Y + BTN2_Y) / 2;
+      this._makeButton(W/2, singleBtnY, '🚀  Begin Adventure!',
+        BTN_W, BTN_H + 8, 0x7bbfa0, 0x5a9e82, '#1a3a2a',
+        () => {
+          this._burst(W/2, singleBtnY);
+          systems.progress.markAdventureStarted();
+          systems.events.emit('save:requested');
+          systems.events.emit('ui:toggle', true);
+          this.scene.start('WorldMapScene');
+        }
+      );
+    }
 
     // ── SUBJECT BADGES — clickable, open study notes ──────────────────────────
     const subjects = [
@@ -147,8 +174,8 @@ export default class IntroScene extends Phaser.Scene {
       { label: '📚 Story Order', fill: 0xeaddff, border: 0x9b72f0, text: '#3c1878' },
       { label: '🧩 Evidence',    fill: 0xffd5d5, border: 0xe06262, text: '#7a1818' }
     ];
-    const BW = 218, BH = 46;
-    const bStartX = W / 2 - (BW * 5) / 2 + BW / 2;
+    const BW = 178, BH = 42;
+    const bStartX = W / 2 - (BW * subjects.length) / 2 + BW / 2;
 
     subjects.forEach((s, i) => {
       const bx  = bStartX + i * BW;
@@ -163,7 +190,7 @@ export default class IntroScene extends Phaser.Scene {
 
       const lbl = this.add.text(0, 1, s.label, {
         fontFamily: '"Nunito", Arial, sans-serif',
-        fontSize: '17px', color: s.text, fontStyle: 'bold'
+        fontSize: '15px', color: s.text, fontStyle: 'bold'
       }).setOrigin(0.5);
       ctn.add(lbl);
 
@@ -209,11 +236,11 @@ export default class IntroScene extends Phaser.Scene {
     });
 
     // Figurative sub-type strip
-    this.add.text(W/2, BADGE_Y + BH + 22,
-      'Simile · Metaphor · Idiom · Hyperbole · Personification · Onomatopoeia · Alliteration', {
-      fontFamily: '"Nunito", Arial, sans-serif',
-      fontSize: '12px', color: '#5a6a7a', align: 'center'
-    }).setOrigin(0.5).setDepth(9);
+    // this.add.text(W/2, BADGE_Y + BH + 22,
+    //   'Simile · Metaphor · Idiom · Hyperbole · Personification · Onomatopoeia · Alliteration', {
+    //   fontFamily: '"Nunito", Arial, sans-serif',
+    //   fontSize: '12px', color: '#5a6a7a', align: 'center'
+    // }).setOrigin(0.5).setDepth(9);
 
     // ── Quick Notes tip line ──────────────────────────────────────────────────
     const tipBg = this.add.graphics().setDepth(9);
@@ -316,7 +343,7 @@ export default class IntroScene extends Phaser.Scene {
 
     const txt = this.add.text(x, y, label, {
       fontFamily: '"Baloo 2", Arial, sans-serif',
-      fontSize: '28px', color: textColor, fontStyle: 'bold', align: 'center'
+      fontSize: '24px', color: textColor, fontStyle: 'bold', align: 'center'
     }).setOrigin(0.5).setDepth(11);
 
     const hit = this.add.rectangle(x, y, bw, bh, 0, 0)
@@ -353,8 +380,8 @@ export default class IntroScene extends Phaser.Scene {
 
     // Card dimensions
     const CX = W / 2, CY = H / 2;
-    const CW = 980,   CH = 520;
-    const HDR = 62;
+    const CW = 860,   CH = 460;
+    const HDR = 54;
 
     // Card body
     const cardG = store(this.add.graphics().setDepth(32));
@@ -369,19 +396,19 @@ export default class IntroScene extends Phaser.Scene {
     headerG.fillRoundedRect(CX-CW/2, CY-CH/2, CW, HDR, { tl:24, tr:24, bl:0, br:0 });
 
     // Title
-    store(this.add.text(CX - 60, CY - CH/2 + HDR/2, note.title, {
+    store(this.add.text(CX, CY - CH/2 + HDR/2, note.title, {
       fontFamily: '"Baloo 2", Arial, sans-serif',
-      fontSize: '26px', color: '#ffffff',
+      fontSize: '24px', color: '#ffffff',
       stroke: '#00000033', strokeThickness: 3
     }).setOrigin(0.5).setDepth(34));
 
     // Standard badge (top-right of header)
     const tagG = store(this.add.graphics().setDepth(33));
     tagG.fillStyle(0xffffff, 0.22);
-    tagG.fillRoundedRect(CX + CW/2 - 290, CY - CH/2 + 14, 272, 34, 10);
-    store(this.add.text(CX + CW/2 - 154, CY - CH/2 + 31, note.standard, {
+    tagG.fillRoundedRect(CX + CW/2 - 245, CY - CH/2 + 12, 224, 32, 10);
+    store(this.add.text(CX + CW/2 - 133, CY - CH/2 + 27, note.standard, {
       fontFamily: '"Nunito", Arial, sans-serif',
-      fontSize: '14px', color: '#ffffff', fontStyle: 'bold'
+      fontSize: '13px', color: '#ffffff', fontStyle: 'bold'
     }).setOrigin(0.5).setDepth(34));
 
     // Vertical divider between columns
@@ -393,11 +420,11 @@ export default class IntroScene extends Phaser.Scene {
     divG.strokePath();
 
     // Text layout constants
-    const COL1_X = CX - CW/2 + 46;
-    const COL2_X = CX + 18;
-    const ROW_Y0  = CY - CH/2 + HDR + 18;
-    const ROW_GAP = 28;
-    const COL_W   = CW/2 - 58;
+    const COL1_X = CX - CW/2 + 44;
+    const COL2_X = CX + 12;
+    const ROW_Y0  = CY - CH/2 + HDR + 16;
+    const ROW_GAP = 26;
+    const COL_W   = CW/2 - 50;
 
     const renderCol = (lines, startX) => {
       lines.forEach((line, i) => {

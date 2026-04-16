@@ -25,7 +25,7 @@ if (!window.STUDENT_ID) {
   document.body.innerHTML = `
     <div style="font-family:sans-serif;text-align:center;padding:80px;color:#c00">
       <h2>⚠️ Session not found</h2>
-      <p>Please return to the Lumos Learning portal to launch ELA Quest.</p>
+      <p>Please return to the Lumos Learning Student portal to launch ELA Quest.</p>
     </div>`;
   throw new Error('window.STUDENT_ID is not set');
 }

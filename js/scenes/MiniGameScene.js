@@ -1234,6 +1234,13 @@ export default class MiniGameScene extends Phaser.Scene {
   finishGateRun() {
     this._gameFinished = true;   // disable leave-warning from this point on
     window.elaIsPlaying = false; // no longer mid-game — tab close won't alert
+
+    // Hide the Exit button — game is over, no need to warn about leaving
+    if (this.exitButton) {
+      this.exitButton.setVisible(false);
+      if (this.exitButton.label) this.exitButton.label.setVisible(false);
+    }
+
     this.clearChallengeLayer();
     const total = this.correctCount + this.wrongCount;
     const accuracy = total > 0 ? this.correctCount / total : 0;
@@ -1340,10 +1347,9 @@ export default class MiniGameScene extends Phaser.Scene {
     // ── Result buttons: Next Game | World Map | Replay (on pass) — centred ──
     const nextGateId = Math.min(this.gateId + 1, 5);
     const isLastGate = this.gateId === 5;
-    const BTN_W = 320;
+    const BTN_W = 220; // reduced width so buttons fit inside card
     const BTN_Y_POS = 548;
-    const GAP = 24;
-
+    const GAP = 14;
     if (pass) {
       // On pass: 3 buttons (or 2 if last gate)
       if (isLastGate) {
@@ -1353,12 +1359,12 @@ export default class MiniGameScene extends Phaser.Scene {
 
         const mapBtn = this.createButton(leftX, BTN_Y_POS, "🗺️  World Map", () => {
           this.scene.start("WorldMapScene");
-        }, 0x4caf7a);
+        }, 0x4caf7a, BTN_W);
         mapBtn.label.setColor('#ffffff');
 
         const replayBtn = this.createButton(rightX, BTN_Y_POS, "🔄  Replay", () => {
           this.scene.restart({ gateId: this.gateId });
-        }, 0xddeeff);
+        }, 0xddeeff, BTN_W);
 
         this.challengeLayer.add([mapBtn, mapBtn.label, replayBtn, replayBtn.label]);
       } else {
@@ -1371,17 +1377,17 @@ export default class MiniGameScene extends Phaser.Scene {
 
         const nextBtn = this.createButton(leftX, BTN_Y_POS, "▶  Next Game", () => {
           this.scene.start("GateScene", { gateId: nextGateId });
-        }, 0x4caf7a);
+        }, 0x4caf7a, BTN_W);
         nextBtn.label.setColor('#ffffff');
 
         const mapBtn = this.createButton(midX, BTN_Y_POS, "🗺️  World Map", () => {
           this.scene.start("WorldMapScene");
-        }, 0x6ec6d4);
+        }, 0x6ec6d4, BTN_W);
         mapBtn.label.setColor('#ffffff');
 
         const replayBtn = this.createButton(rightX, BTN_Y_POS, "🔄  Replay", () => {
           this.scene.restart({ gateId: this.gateId });
-        }, 0xddeeff);
+        }, 0xddeeff, BTN_W);
 
         this.challengeLayer.add([nextBtn, nextBtn.label, mapBtn, mapBtn.label, replayBtn, replayBtn.label]);
       }
@@ -1392,12 +1398,12 @@ export default class MiniGameScene extends Phaser.Scene {
 
       const replayBtn = this.createButton(leftX, BTN_Y_POS, "🔄  Replay", () => {
         this.scene.restart({ gateId: this.gateId });
-      }, 0xff8c42);
+      }, 0xff8c42, BTN_W);
       replayBtn.label.setColor('#ffffff');
 
       const mapBtn = this.createButton(rightX, BTN_Y_POS, "🗺️  World Map", () => {
         this.scene.start("WorldMapScene");
-      }, 0xddeeff);
+      }, 0xddeeff, BTN_W);
 
       this.challengeLayer.add([replayBtn, replayBtn.label, mapBtn, mapBtn.label]);
     }

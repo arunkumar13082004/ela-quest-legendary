@@ -6,11 +6,13 @@ export default class ProgressionSystem {
 
   getDefaultState() {
     return {
+      hasStartedAdventure: false,
       unlockedGate: 1,
       completedGates: {},
       gateStars: {},
       restoredCrystals: 0,
-      bossUnlocked: false
+      bossUnlocked: false,
+      shownInstructions: false
     };
   }
 
@@ -25,6 +27,13 @@ export default class ProgressionSystem {
     }
     if (!this.state.gateStars || typeof this.state.gateStars !== "object") {
       this.state.gateStars = {};
+    }
+    if (typeof this.state.hasStartedAdventure !== "boolean") {
+      this.state.hasStartedAdventure =
+        this.getCompletedCount() > 0 ||
+        this.state.unlockedGate > 1 ||
+        this.state.restoredCrystals > 0 ||
+        this.state.shownInstructions === true;
     }
     this.refreshBossUnlock();
     this.emitUpdate();
@@ -72,6 +81,12 @@ export default class ProgressionSystem {
 
   resetCampaign() {
     this.state = this.getDefaultState();
+    this.emitUpdate();
+  }
+
+  markAdventureStarted() {
+    if (this.state.hasStartedAdventure) return;
+    this.state.hasStartedAdventure = true;
     this.emitUpdate();
   }
 

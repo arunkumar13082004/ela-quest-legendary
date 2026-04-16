@@ -9,6 +9,7 @@ const TABLE = 'vibe_coding_dev';
 // ── Sanitise StudentID from cookie ────────────────────────────────────────────
 $rawId     = isset($_COOKIE['CurStudentID']) ? trim($_COOKIE['CurStudentID']) : '';
 $studentId = preg_replace('/[^a-zA-Z0-9_\-]/', '', $rawId);
+$userType = isset($_COOKIE['userType']) ? trim($_COOKIE['userType']) : '';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // API MODE — handle ?action=load | save | delete | scores | leaderboard
@@ -145,11 +146,12 @@ if ($action !== '') {
 // ─────────────────────────────────────────────────────────────────────────────
 // PAGE MODE — serve the game HTML
 // ─────────────────────────────────────────────────────────────────────────────
-if (empty($studentId)) {
+if (empty($studentId)) // || $userType === '' || strtolower($userType) !== 'student' 
+{
     http_response_code(403);
     echo '<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px">
         <h2>⚠️ Session Expired</h2>
-        <p>Please log in to the Lumos Learning portal to play ELA Quest.</p>
+        <p>Please log in to the Lumos Learning Student portal to play ELA Quest.</p>
     </body></html>';
     exit;
 }
